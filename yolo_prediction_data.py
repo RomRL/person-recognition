@@ -85,7 +85,7 @@ class YOLOv8Detector:
 
         return detections
 
-    def process_video(self, video_path, target_class_id=None):
+    def process_video(self, video_path, target_class_id=None) -> list[list[Detection]]:
         """
         Process a video and return detections for each frame.
         """
@@ -110,7 +110,7 @@ class YOLOv8Detector:
 # Example usage
 if __name__ == "__main__":
     detector = YOLOv8Detector("yolov8l.pt")
-    frame_detections = detector.process_video("videoplayback.mp4", target_class_id='person')
+    frame_detections: list[list[Detection]] = detector.process_video("videoplayback.mp4", target_class_id='person')
 
     for frame_idx, detections in enumerate(frame_detections):
         # fig, ax = plt.subplots(1)
@@ -118,5 +118,3 @@ if __name__ == "__main__":
         print(f"\nFrame {frame_idx + 1}: {len(detections)} detections")
         for detection in detections:
             print(detection)
-
-
