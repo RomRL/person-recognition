@@ -114,6 +114,7 @@ if __name__ == "__main__":
     for frame_idx, detections in enumerate(frame_detections):
         # For debug -
         # fig, ax = plt.subplots(1)
+
         # ax.imshow(cv2.cvtColor(detections[0].image_patch, cv2.COLOR_BGR2RGB))
         print(f"\nFrame {frame_idx + 1}: {len(detections)} detections")
         for detection in detections:
