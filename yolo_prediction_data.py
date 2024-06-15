@@ -1,5 +1,5 @@
 import cv2
-from matplotlib import pyplot as plt
+# from matplotlib import pyplot as plt
 from ultralytics import YOLO
 
 
@@ -112,15 +112,9 @@ if __name__ == "__main__":
     frame_detections: list[list[Detection]] = detector.process_video("videoplayback.mp4", target_class_id='person')
 
     for frame_idx, detections in enumerate(frame_detections):
-        if detections:  # Check if there are detections
-            for detection in detections:
-                if detection.image_patch is not None:  # Ensure the image patch is valid
-                    fig, ax = plt.subplots(1)
-                    ax.imshow(cv2.cvtColor(detection.image_patch, cv2.COLOR_BGR2RGB))
-                    plt.title(f"Frame {frame_idx + 1}: {detection.class_id} with {detection.confidence*100}% confidence")
-                    plt.savefig(f"frame_{frame_idx + 1}_detection.png")
-                    print(detection)
-                else:
-                    print(f"No valid image patch for detection in frame {frame_idx + 1}.")
-        else:
-            print(f"No detections in frame {frame_idx + 1}.")
+        # For debug -
+        # fig, ax = plt.subplots(1)
+        # ax.imshow(cv2.cvtColor(detections[0].image_patch, cv2.COLOR_BGR2RGB))
+        print(f"\nFrame {frame_idx + 1}: {len(detections)} detections")
+        for detection in detections:
+            print(detection)
