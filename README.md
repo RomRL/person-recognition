@@ -1,4 +1,4 @@
-#  AI-Driven Person Recognition and Matching in Videos Using ConvLSTM
+#  AI-Driven Person Recognition and Identification in Videos
 
 ## Project Overview
 
@@ -6,7 +6,7 @@ Our project is focused on developing an advanced system leveraging artificial in
 
 ## Keywords
 
-Person Detection, Feature Extraction, Facial Recognition, Body Structure Analysis, Artificial Intelligence, Neural Networks, Video Processing, Machine Learning, Person Matching, Biometric Analysis, Deep Learning, Pattern Recognition, ConvLSTM, CNN.
+Person Detection, Feature Extraction, Facial Recognition, Body Structure Analysis, Artificial Intelligence, Neural Networks, Video Processing, Machine Learning, Person Matching, Biometric Analysis, Deep Learning, Pattern Recognition, , CNN.
 
 ## Problem Statement
 
