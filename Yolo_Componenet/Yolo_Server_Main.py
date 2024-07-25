@@ -6,7 +6,7 @@ from Yolo_Componenet.Frame import Frame
 from Yolo_Componenet.YoloV8Detector import YoloV8Detector
 
 app = FastAPI()
-detector = YoloV8Detector("yolov8l.pt")
+detector = YoloV8Detector("../yolov8l.pt")
 
 
 @app.post("/detect/")

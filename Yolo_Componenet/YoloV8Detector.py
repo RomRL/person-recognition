@@ -69,12 +69,3 @@ class YoloV8Detector:
         cap.release()
         return frames
 
-
-if __name__ == "__main__":
-    detector = YoloV8Detector("yolov8l.pt")
-    video_frames: list[Frame] = detector.process_video("videoplayback.mp4")
-    for frame in video_frames:
-        print(frame)
-        for detection in frame.detections:
-            print(detection)
-    print("Done")
