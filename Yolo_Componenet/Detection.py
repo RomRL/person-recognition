@@ -9,6 +9,7 @@ class Detection:
 
     def __init__(self, coordinates, confidence, image_patch, frame_index):
         self.founded = False
+        self.similarity = None
         self.coordinates = coordinates
         self.confidence = confidence
         self.width = coordinates[2] - coordinates[0]

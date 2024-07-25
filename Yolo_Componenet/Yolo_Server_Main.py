@@ -1,15 +1,15 @@
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import JSONResponse
 import tempfile
-
+import requests
 from Yolo_Componenet.Frame import Frame
 from Yolo_Componenet.YoloV8Detector import YoloV8Detector
 
 app = FastAPI()
 detector = YoloV8Detector("../yolov8l.pt")
+face_comparison_server_url = "http://127.0.0.1:8001/compare/"
 
 
-@app.post("/detect/")
 @app.post("/detect/")
 async def detect_video(file: UploadFile = File(...)):
     # Save the uploaded video file temporarily
@@ -22,6 +22,35 @@ async def detect_video(file: UploadFile = File(...)):
 
     # Convert frames with detections to a serializable format
     frames_serializable = [frame.to_dict() for frame in video_frames]
+
+    return JSONResponse(content=frames_serializable)
+
+
+@app.post("/improved_detect/")
+async def detect_video(file: UploadFile = File(...)):
+    # Save the uploaded video file temporarily
+    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+        tmp.write(await file.read())
+        tmp_path = tmp.name
+
+    # Process the video and get frames with detections
+    video_frames: list[Frame] = detector.process_video(tmp_path)
+
+    # Convert frames with detections to a serializable format
+    frames_serializable = []
+    for frame in video_frames:
+        frame_data = frame.to_dict()
+        for detection in frame_data['detections']:
+            detected_image_base64 = detection['image_base_64']
+            # Send image to face comparison server
+            response = requests.post(face_comparison_server_url, json={"image_base_64": detected_image_base64})
+            similarity = response.json().get("similarity", None)
+            detection['similarity'] = similarity
+            if similarity is not None:
+                detection['founded'] = similarity < 0.5
+                detection['similarity'] = similarity
+
+        frames_serializable.append(frame_data)
 
     return JSONResponse(content=frames_serializable)
 
