@@ -2,30 +2,11 @@ import cv2
 from ultralytics import YOLO
 import torch
 
-
-class Detection:
-    """
-    A class to represent a single detection.
-    """
-
-    def __init__(self, coordinates, confidence, image_patch, frame_index):
-        self.founded = False
-        self.coordinates = coordinates
-        self.confidence = confidence
-        self.width = coordinates[2] - coordinates[0]
-        self.height = coordinates[3] - coordinates[1]
-        self.image_patch = image_patch  # Store the image patch corresponding to the detection
-        self.frame_index = frame_index  # Store the frame index where the detection occurred
-
-    def __str__(self):
-        return (f"Object type: Person\n"
-                f"Coordinates: {self.coordinates}\n"
-                f"Width: {self.width}, Height: {self.height}\n"
-                f"Probability: {self.confidence}\n"
-                f"Image Patch Shape: {self.image_patch.shape if self.image_patch is not None else 'N/A'}\n")
+from Yolo_Componenet.Frame import Frame
+from Yolo_Componenet.Detection import Detection
 
 
-class YOLOv8Detector:
+class YoloV8Detector:
     """
     A class to handle YOLOv8 model loading and predictions.
     """
@@ -52,7 +33,7 @@ class YOLOv8Detector:
         """
         results = self.model.predict(source=frame, classes=0)
         result = results[0]
-        detections = []
+        frame_obj = Frame(frame_index)
 
         # Extract detection details
         for box in result.boxes:
@@ -63,16 +44,17 @@ class YOLOv8Detector:
             image_patch = frame[y1:y2, x1:x2] if x1 >= 0 and y1 >= 0 and x2 <= frame.shape[1] and y2 <= frame.shape[
                 0] else None
 
-            detections.append(Detection(coordinates, confidence, image_patch, frame_index=frame_index))
+            detection = Detection(coordinates, confidence, image_patch, frame_index=frame_index)
+            frame_obj.add_detection(detection)
 
-        return detections
+        return frame_obj
 
-    def process_video(self, video_path) -> list[list[Detection]]:
+    def process_video(self, video_path) -> list[Frame]:
         """
-        Process a video and return detections for each frame.
+        Process a video and return frames with detections.
         """
         cap = cv2.VideoCapture(video_path)
-        frame_detections = []
+        frames = []
         frame_index = 0
 
         while cap.isOpened():
@@ -81,17 +63,18 @@ class YOLOv8Detector:
             if not ret:
                 break
 
-            detections = self.predict(frame, frame_index=frame_index)
-            frame_detections.append(detections)
+            frame_obj = self.predict(frame, frame_index=frame_index)
+            frames.append(frame_obj)
 
         cap.release()
-        return frame_detections
+        return frames
 
 
 if __name__ == "__main__":
-    detector = YOLOv8Detector("yolov8l.pt")
-    video_frames: list[list[Detection]] = detector.process_video("videoplayback.mp4")
-
+    detector = YoloV8Detector("yolov8l.pt")
+    video_frames: list[Frame] = detector.process_video("videoplayback.mp4")
     for frame in video_frames:
-        for detection in frame:
+        print(frame)
+        for detection in frame.detections:
             print(detection)
+    print("Done")
