@@ -1,5 +1,4 @@
 import cv2
-# from matplotlib import pyplot as plt
 from ultralytics import YOLO
 
 
@@ -8,7 +7,7 @@ class Detection:
     A class to represent a single detection.
     """
 
-    def __init__(self, class_id, coordinates, confidence, original_shape, image_patch, box_data):
+    def __init__(self, class_id, coordinates, confidence, original_shape, image_patch, box_data, frame_index):
         self.class_id = class_id
         self.coordinates = coordinates
         self.confidence = confidence
@@ -19,6 +18,7 @@ class Detection:
         self.relative_coordinates = self.get_relative_coordinates(original_shape)
         self.image_patch = image_patch  # Store the image patch corresponding to the detection
         self.box_data = box_data  # ALL YOLO bounding box data
+        self.frame_index = frame_index  # Store the frame index where the detection occurred
 
     def get_relative_coordinates(self, original_shape):
         """
@@ -59,7 +59,7 @@ class YOLOv8Detector:
         # Load the YOLO model
         self.model = YOLO(model_path)
 
-    def predict(self, frame):
+    def predict(self, frame, frame_index):
         """
         Predict objects in a given frame.
         """
@@ -81,7 +81,8 @@ class YOLOv8Detector:
             image_patch = frame[y1:y2, x1:x2] if x1 >= 0 and y1 >= 0 and x2 <= frame.shape[1] and y2 <= frame.shape[
                 0] else None
 
-            detections.append(Detection(class_id, coordinates, confidence, original_shape, image_patch, box_data))
+            detections.append(
+                Detection(class_id, coordinates, confidence, original_shape, image_patch, box_data, frame_index))
 
         return detections
 
@@ -91,13 +92,15 @@ class YOLOv8Detector:
         """
         cap = cv2.VideoCapture(video_path)
         frame_detections = []
+        frame_index = 0
 
         while cap.isOpened():
             ret, frame = cap.read()
+            frame_index += 1
             if not ret:
                 break
 
-            detections = self.predict(frame)
+            detections = self.predict(frame, frame_index=frame_index)
             if target_class_id:
                 detections = filter_by_class(detections, target_class_id)
 
@@ -109,13 +112,9 @@ class YOLOv8Detector:
 
 if __name__ == "__main__":
     detector = YOLOv8Detector("yolov8l.pt")
-    frame_detections: list[list[Detection]] = detector.process_video("videoplayback.mp4", target_class_id='person')
+    video_frames: list[list[Detection]] = detector.process_video("videoplayback.mp4", target_class_id='person')
 
-    for frame_idx, detections in enumerate(frame_detections):
-        # For debug -
-        # fig, ax = plt.subplots(1)
-
-        # ax.imshow(cv2.cvtColor(detections[0].image_patch, cv2.COLOR_BGR2RGB))
-        print(f"\nFrame {frame_idx + 1}: {len(detections)} detections")
-        for detection in detections:
+    for frame in video_frames:
+        for detection in frame:
             print(detection)
+        print("----")
