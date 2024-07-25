@@ -87,4 +87,3 @@ if __name__ == "__main__":
     for frame in video_frames:
         for detection in frame:
             print(detection)
-        print("----")
