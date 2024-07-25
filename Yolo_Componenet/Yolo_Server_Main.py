@@ -44,12 +44,12 @@ async def detect_video(file: UploadFile = File(...)):
             detected_image_base64 = detection['image_base_64']
             # Send image to face comparison server
             response = requests.post(face_comparison_server_url, json={"image_base_64": detected_image_base64})
-            similarity = response.json().get("similarity", None)
-            detection['similarity'] = similarity
-            if similarity is not None:
-                detection['founded'] = similarity < 0.5
+            if response.status_code == 200:
+                similarity = response.json().get("similarity_percentage", None)
                 detection['similarity'] = similarity
-
+                if similarity and similarity > 20:  # Assuming a threshold of 90% for a match
+                    detection["founded"] = True
+                    break
         frames_serializable.append(frame_data)
 
     return JSONResponse(content=frames_serializable)
