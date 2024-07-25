@@ -2,11 +2,14 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import JSONResponse
 import tempfile
 
-from Yolo_Componenet.yolo_detector import YOLOv8Detector, Detection
+from Yolo_Componenet.Frame import Frame
+from Yolo_Componenet.YoloV8Detector import YoloV8Detector
 
 app = FastAPI()
-detector = YOLOv8Detector("yolov8l.pt")
+detector = YoloV8Detector("yolov8l.pt")
 
+
+@app.post("/detect/")
 @app.post("/detect/")
 async def detect_video(file: UploadFile = File(...)):
     # Save the uploaded video file temporarily
@@ -14,16 +17,14 @@ async def detect_video(file: UploadFile = File(...)):
         tmp.write(await file.read())
         tmp_path = tmp.name
 
-    # Process the video and get detections
-    video_frames: list[list[Detection]] = detector.process_video(tmp_path)
+    # Process the video and get frames with detections
+    video_frames: list[Frame] = detector.process_video(tmp_path)
 
-    # Convert detections to a serializable format
-    detections_serializable = [
-        [detection.to_dict() for detection in frame]
-        for frame in video_frames
-    ]
+    # Convert frames with detections to a serializable format
+    frames_serializable = [frame.to_dict() for frame in video_frames]
 
-    return JSONResponse(content=detections_serializable)
+    return JSONResponse(content=frames_serializable)
+
 
 @app.post("/whoami/", response_model=dict, response_model_exclude_unset=True,
           description="This endpoint returns the filename of the uploaded file.")
