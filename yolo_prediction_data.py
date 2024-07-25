@@ -1,5 +1,6 @@
 import cv2
 from ultralytics import YOLO
+import torch
 
 
 class Detection:
@@ -17,15 +18,11 @@ class Detection:
         self.frame_index = frame_index  # Store the frame index where the detection occurred
 
     def __str__(self):
-        return (f"Object type: {self.class_id}\n"
+        return (f"Object type: Person\n"
                 f"Coordinates: {self.coordinates}\n"
-                f"Relative Coordinates: {self.relative_coordinates}\n"
                 f"Width: {self.width}, Height: {self.height}\n"
-                f"Center (X, Y): ({self.center_x}, {self.center_y})\n"
                 f"Probability: {self.confidence}\n"
-                f"Image Patch Shape: {self.image_patch.shape if self.image_patch is not None else 'N/A'}\n"
-                f"Box Data: {self.box_data}\n---")
-
+                f"Image Patch Shape: {self.image_patch.shape if self.image_patch is not None else 'N/A'}\n")
 
 
 class YOLOv8Detector:
@@ -36,19 +33,30 @@ class YOLOv8Detector:
     def __init__(self, model_path):
         # Load the YOLO model
         self.model = YOLO(model_path)
+        self._choose_running_device()
+
+    def _choose_running_device(self):
+        """
+        Choose the appropriate device to run the model on.
+        """
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.model.to(device)
+        print(f'Model running on device: {next(self.model.parameters()).device}')  # Check device of the model again
+        if device == "cuda":
+            print(f"Number of GPUs available: {torch.cuda.device_count()}")
+            print(f"GPU name: {torch.cuda.get_device_name(0)}")
 
     def predict(self, frame, frame_index):
         """
         Predict objects in a given frame.
         """
-        original_shape = frame.shape[:2]  # Height, Width
-        results = self.model.predict(source=frame)
+        results = self.model.predict(source=frame, classes=0)
         result = results[0]
         detections = []
 
         # Extract detection details
         for box in result.boxes:
-            coordinates = [round(x) for x in  box.xyxy[0].tolist()]
+            coordinates = [round(x) for x in box.xyxy[0].tolist()]
             confidence = round(box.conf[0].item(), 2)
             # Crop the image patch corresponding to the detection
             x1, y1, x2, y2 = coordinates
@@ -59,7 +67,7 @@ class YOLOv8Detector:
 
         return detections
 
-    def process_video(self, video_path, target_class_id="person") -> list[list[Detection]]:
+    def process_video(self, video_path) -> list[list[Detection]]:
         """
         Process a video and return detections for each frame.
         """

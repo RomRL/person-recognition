@@ -9,3 +9,5 @@ pillow~=10.3.0
 pandas~=2.2.2
 pycocotools~=2.0.7
 ultralytics==8.1.29
+
+torch~=2.2.1
