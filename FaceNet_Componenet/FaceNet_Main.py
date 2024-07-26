@@ -10,21 +10,11 @@ from contextlib import asynccontextmanager
 from pydantic import BaseModel
 from enum import Enum
 
+from Utils.Log_level import LogLevel
+
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-class LogLevel(str, Enum):
-    DEBUG = 'DEBUG'
-    INFO = 'INFO'
-    WARNING = 'WARNING'
-    ERROR = 'ERROR'
-    CRITICAL = 'CRITICAL'
-
-
-class LoggingLevelRequest(BaseModel):
-    level: LogLevel
 
 
 class ThresholdRequest(BaseModel):
@@ -80,7 +70,12 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down...")
     logger.info("Application stopped.")
 
-app = FastAPI(lifespan=lifespan)
+
+app = FastAPI(
+    lifespan=lifespan,
+    title="Face Comparison API",
+    description="This API allows you to set a reference image and compare it with uploaded images to calculate similarity percentages using FaceNet."
+)
 
 
 @app.post("/set_logging_level/", description="Set the logging level dynamically.")
@@ -141,6 +136,16 @@ async def compare_faces_endpoint(request: Request):
     except Exception as e:
         logger.error(f"Error in compare_faces_endpoint: {e}")
         return {"error": str(e)}
+
+
+@app.get("/health/", description="Health check endpoint to verify that the application is running.")
+async def health_check():
+    try:
+        logger.info("Health check successful.")
+        return {"status": "healthy"}
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return {"status": "unhealthy", "error": str(e)}
 
 
 if __name__ == "__main__":

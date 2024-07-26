@@ -1,14 +1,14 @@
 import tempfile
 from contextlib import asynccontextmanager
-
 import requests
 import logging
-
 import uvicorn
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from enum import Enum
+
+from Utils.Log_level import LogLevel
 from Yolo_Componenet.Frame import Frame
 from Yolo_Componenet.YoloV8Detector import YoloV8Detector
 
@@ -24,23 +24,15 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down...")
     logger.info("Application stopped.")
 
-app = FastAPI(lifespan=lifespan)
 
+app = FastAPI(
+    lifespan=lifespan,
+    title="YOLOv8 Detection and Face Comparison API",
+    description="This API allows you to process video files to detect objects using YOLOv8 and compare detected faces with a reference image."
+)
 
 detector = YoloV8Detector("../yolov8l.pt")
 face_comparison_server_url = "http://127.0.0.1:8001/compare/"
-
-
-class LogLevel(str, Enum):
-    DEBUG = 'DEBUG'
-    INFO = 'INFO'
-    WARNING = 'WARNING'
-    ERROR = 'ERROR'
-    CRITICAL = 'CRITICAL'
-
-
-class LoggingLevelRequest(BaseModel):
-    level: LogLevel
 
 
 @app.post("/set_logging_level/", description="Set the logging level dynamically.")
@@ -125,6 +117,16 @@ async def whoami(string: str):
     except Exception as e:
         logger.error(f"Error in whoami endpoint: {e}")
         return {"error": str(e)}
+
+
+@app.get("/health/", description="Health check endpoint to verify that the application is running.")
+async def health_check():
+    try:
+        logger.info("Health check successful.")
+        return {"status": "healthy"}
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return {"status": "unhealthy", "error": str(e)}
 
 
 if __name__ == "__main__":
