@@ -3,12 +3,11 @@ from facenet_pytorch import MTCNN, InceptionResnetV1
 from PIL import Image
 import torch
 import io
-from fastapi import FastAPI, Request, UploadFile, File, HTTPException
+from fastapi import FastAPI, Request, UploadFile, File
 import uvicorn
 import logging
 from contextlib import asynccontextmanager
 from pydantic import BaseModel
-from enum import Enum
 
 from Utils.Log_level import LogLevel
 

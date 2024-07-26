@@ -3,10 +3,9 @@ from contextlib import asynccontextmanager
 import requests
 import logging
 import uvicorn
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-from enum import Enum
+
 
 from Utils.Log_level import LogLevel
 from Yolo_Componenet.Frame import Frame
