@@ -3,11 +3,12 @@ from facenet_pytorch import MTCNN, InceptionResnetV1
 from PIL import Image
 import torch
 import io
-from fastapi import FastAPI, Request, UploadFile, File
+from fastapi import FastAPI, Request, UploadFile, File, HTTPException
 import uvicorn
 import logging
 from contextlib import asynccontextmanager
 from pydantic import BaseModel
+from typing import List
 
 from Utils.Log_level import LogLevel
 
@@ -96,46 +97,55 @@ async def set_threshold(request: ThresholdRequest):
     return {"message": f"Similarity threshold set to {similarity_threshold}"}
 
 
-@app.post("/set_reference_image/", description="Set the reference image for face comparison.")
-async def set_reference_image(file: UploadFile = File(...)):
+@app.post("/set_reference_image/", description="Set the reference images for face comparison.")
+async def set_reference_image(files: List[UploadFile] = File(...)):
     global reference_embedding
     try:
-        image_bytes = await file.read()
-        reference_image = Image.open(io.BytesIO(image_bytes))
-        logger.debug("Reference image loaded successfully")
-        reference_embedding = get_embedding(reference_image)
-        if reference_embedding is not None:
-            logger.info("Reference embedding calculated successfully")
-            return {"message": "Reference image set successfully"}
+        embeddings = []
+        for file in files:
+            image_bytes = await file.read()
+            reference_image = Image.open(io.BytesIO(image_bytes))
+            logger.debug("Reference image loaded successfully")
+            embedding = get_embedding(reference_image)
+            if embedding is not None:
+                embeddings.append(embedding)
+            else:
+                logger.error(f"Failed to calculate embedding for image: {file.filename}")
+
+        if embeddings:
+            reference_embedding = torch.mean(torch.stack(embeddings), dim=0)
+            logger.info("Average reference embedding calculated successfully")
+            return {"message": "Reference images set and average embedding calculated successfully"}
         else:
-            logger.error("Failed to calculate reference embedding")
-            return {"error": "Failed to calculate reference embedding"}
+            logger.error("Failed to calculate any embeddings from the provided images")
+            return {"error": "Failed to calculate any embeddings from the provided images"}
     except Exception as e:
-        logger.error(f"Error setting reference image: {e}")
+        logger.error(f"Error setting reference images: {e}")
         return {"error": str(e)}
 
 
-@app.post("/compare/",
-          description="Compare an uploaded image with the reference image and return the similarity percentage.")
+@app.post("/compare/", description="Compare an uploaded image with the reference image and return the similarity percentage.")
 async def compare_faces_endpoint(request: Request):
+    if reference_embedding is None:
+        logger.error("Reference embedding not set. Please use /set_reference_image first.")
+        raise HTTPException(status_code=400, detail="Reference embedding not set. Please use /set_reference_image first.")
     try:
         data = await request.json()
         detected_image_base64 = data.get("image_base_64")
         detected_image = preprocess_image(detected_image_base64)
         detected_embedding = get_embedding(detected_image)
 
-        if detected_embedding is not None and reference_embedding is not None:
+        if detected_embedding is not None:
             distance = compare_faces(detected_embedding, reference_embedding)
             similarity_percentage = calculate_similarity(distance, threshold=similarity_threshold)
             logger.info(f"Similarity percentage: {similarity_percentage}%")
             return {"similarity_percentage": similarity_percentage}
         else:
-            logger.error("Face not detected in one or both images")
-            return {"error": "Face not detected in one or both images"}
+            logger.debug("Face not detected in one or both images")
+            return {"similarity_percentage": 0}
     except Exception as e:
         logger.error(f"Error in compare_faces_endpoint: {e}")
-        return {"error": str(e)}
-
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/health/", description="Health check endpoint to verify that the application is running.")
 async def health_check():

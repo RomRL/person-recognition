@@ -2,7 +2,6 @@ import tempfile
 from contextlib import asynccontextmanager
 import requests
 import logging
-import cv2
 import uvicorn
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -13,9 +12,6 @@ from Utils.Log_level import LogLevel
 from Yolo_Componenet.Frame import Frame
 from Yolo_Componenet.utils import process_and_annotate_video, create_streaming_response, logger, detector, \
     face_comparison_server_url
-from Yolo_Componenet.YoloV8Detector import YoloV8Detector
-
-
 
 
 @asynccontextmanager
