@@ -109,6 +109,7 @@ async def improved_detect_video(file: UploadFile = File(...)):
             frames_serializable.append(frame_data)
 
         logger.info("Video processed, detections serialized, and similarities calculated successfully.")
+        logger.debug(f"The Response is {frames_serializable}")
         return JSONResponse(content=frames_serializable)
     except Exception as e:
         logger.error(f"Error in improved_detect_video endpoint: {e}")
