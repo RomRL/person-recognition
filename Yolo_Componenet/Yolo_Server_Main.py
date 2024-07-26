@@ -2,18 +2,20 @@ import tempfile
 from contextlib import asynccontextmanager
 import requests
 import logging
+import cv2
 import uvicorn
-from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import JSONResponse
-
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel
+from typing import Optional
 
 from Utils.Log_level import LogLevel
 from Yolo_Componenet.Frame import Frame
+from Yolo_Componenet.utils import process_and_annotate_video, create_streaming_response, logger, detector, \
+    face_comparison_server_url
 from Yolo_Componenet.YoloV8Detector import YoloV8Detector
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+
 
 
 @asynccontextmanager
@@ -30,8 +32,9 @@ app = FastAPI(
     description="This API allows you to process video files to detect objects using YOLOv8 and compare detected faces with a reference image."
 )
 
-detector = YoloV8Detector("../yolov8l.pt")
-face_comparison_server_url = "http://127.0.0.1:8001/compare/"
+
+class SimilarityThresholdRequest(BaseModel):
+    similarity_threshold: Optional[float] = 20.0
 
 
 @app.post("/set_logging_level/", description="Set the logging level dynamically.")
@@ -104,6 +107,21 @@ async def improved_detect_video(file: UploadFile = File(...)):
         return JSONResponse(content=frames_serializable)
     except Exception as e:
         logger.error(f"Error in improved_detect_video endpoint: {e}")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+
+@app.post("/detect_and_annotate/", response_description="Annotated video file")
+async def detect_and_annotate_video(file: UploadFile = File(...), similarity_threshold: float = 20.0):
+    try:
+        # Save the uploaded video file temporarily
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            tmp.write(await file.read())
+            tmp_path = tmp.name
+
+        output_path = process_and_annotate_video(tmp_path, similarity_threshold)
+        return create_streaming_response(output_path, "annotated_video.mp4")
+    except Exception as e:
+        logger.error(f"Error in detect_and_annotate_video endpoint: {e}")
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
