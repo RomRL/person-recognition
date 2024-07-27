@@ -1,4 +1,5 @@
 import base64
+import numpy as np
 from facenet_pytorch import MTCNN, InceptionResnetV1
 from PIL import Image
 import torch
@@ -9,7 +10,6 @@ import logging
 from contextlib import asynccontextmanager
 from pydantic import BaseModel
 from typing import List
-
 from Utils.Log_level import LogLevel
 
 # Set up logging
@@ -33,7 +33,7 @@ def get_embedding(image):
             aligned = mtcnn(image)
             if aligned is not None:
                 aligned = aligned.unsqueeze(0)  # Add batch dimension
-                embedding = resnet(aligned).detach()
+                embedding = resnet(aligned).detach().numpy()
                 logger.debug("Face detected and embedding calculated successfully")
                 return embedding
         logger.warning("No faces detected in the image.")
@@ -42,15 +42,13 @@ def get_embedding(image):
     return None
 
 
-def compare_faces(embedding1, embedding2):
-    distance = torch.nn.functional.pairwise_distance(embedding1, embedding2)
-    return distance.item()
-
-
-def calculate_similarity(distance, threshold=1.1):
-    # Normalize distance to a similarity percentage
-    similarity = max(0, 100 * (1 - distance / threshold))
-    return similarity
+def compare_faces_embedding(embedding, embedding_list):
+    similarity_percentages = []
+    for emb in embedding_list:
+        distance = np.linalg.norm(embedding - emb)
+        similarity = np.exp(-distance) * 100  # Convert distance to similarity percentage
+        similarity_percentages.append(similarity)
+    return max(similarity_percentages)
 
 
 # Initialize MTCNN for face detection
@@ -59,7 +57,7 @@ mtcnn = MTCNN()
 # Load pre-trained Inception ResNet model (FaceNet)
 resnet = InceptionResnetV1(pretrained='vggface2').eval()
 
-reference_embedding = None
+embeddings = None
 similarity_threshold = 1.1  # Default threshold value
 
 
@@ -99,7 +97,7 @@ async def set_threshold(request: ThresholdRequest):
 
 @app.post("/set_reference_image/", description="Set the reference images for face comparison.")
 async def set_reference_image(files: List[UploadFile] = File(...)):
-    global reference_embedding
+    global embeddings, average_embedding
     try:
         embeddings = []
         for file in files:
@@ -113,9 +111,12 @@ async def set_reference_image(files: List[UploadFile] = File(...)):
                 logger.error(f"Failed to calculate embedding for image: {file.filename}")
 
         if embeddings:
-            reference_embedding = torch.mean(torch.stack(embeddings), dim=0)
-            logger.info("Average reference embedding calculated successfully")
-            return {"message": "Reference images set and average embedding calculated successfully"}
+            # Calculate the average embedding
+            average_embedding = np.mean(embeddings, axis=0)
+            logger.info("Reference embeddings and average embedding calculated successfully")
+            return {
+                "message": "Reference images set, embeddings, and average embedding calculated successfully",
+            }
         else:
             logger.error("Failed to calculate any embeddings from the provided images")
             return {"error": "Failed to calculate any embeddings from the provided images"}
@@ -124,11 +125,13 @@ async def set_reference_image(files: List[UploadFile] = File(...)):
         return {"error": str(e)}
 
 
-@app.post("/compare/", description="Compare an uploaded image with the reference image and return the similarity percentage.")
+@app.post("/compare/",
+          description="Compare an uploaded image with the reference image and return the similarity percentage.")
 async def compare_faces_endpoint(request: Request):
-    if reference_embedding is None:
-        logger.error("Reference embedding not set. Please use /set_reference_image first.")
-        raise HTTPException(status_code=400, detail="Reference embedding not set. Please use /set_reference_image first.")
+    if embeddings is None:
+        logger.error("Reference embeddings not set. Please use /set_reference_image first.")
+        raise HTTPException(status_code=400,
+                            detail="Reference embeddings not set. Please use /set_reference_image first.")
     try:
         data = await request.json()
         detected_image_base64 = data.get("image_base_64")
@@ -136,8 +139,7 @@ async def compare_faces_endpoint(request: Request):
         detected_embedding = get_embedding(detected_image)
 
         if detected_embedding is not None:
-            distance = compare_faces(detected_embedding, reference_embedding)
-            similarity_percentage = calculate_similarity(distance, threshold=similarity_threshold)
+            similarity_percentage = compare_faces_embedding(embedding=detected_embedding, embedding_list=embeddings)
             logger.info(f"Similarity percentage: {similarity_percentage}%")
             return {"similarity_percentage": similarity_percentage}
         else:
@@ -146,6 +148,7 @@ async def compare_faces_endpoint(request: Request):
     except Exception as e:
         logger.error(f"Error in compare_faces_endpoint: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/health/", description="Health check endpoint to verify that the application is running.")
 async def health_check():

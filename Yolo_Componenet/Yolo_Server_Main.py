@@ -11,7 +11,7 @@ from typing import Optional
 from Utils.Log_level import LogLevel
 from Yolo_Componenet.Frame import Frame
 from Yolo_Componenet.utils import process_and_annotate_video, create_streaming_response, logger, detector, \
-    face_comparison_server_url
+    face_comparison_server_url, detected_frames
 
 
 @asynccontextmanager
@@ -119,6 +119,15 @@ async def detect_and_annotate_video(file: UploadFile = File(...), similarity_thr
     except Exception as e:
         logger.error(f"Error in detect_and_annotate_video endpoint: {e}")
         return JSONResponse(content={"error": str(e)}, status_code=500)
+
+
+@app.get("/get_detected_frames/", description="Get the detected frames from the last processed video.")
+async def get_detected_frames():
+    try:
+        return {"detected_frames": detected_frames , "status": "success"}
+    except Exception as e:
+        logger.error(f"Error in get_detected_frames endpoint: {e}")
+        return {"error": str(e)}
 
 
 @app.post("/whoami/", response_model=dict, response_model_exclude_unset=True,
