@@ -3,8 +3,8 @@ from contextlib import asynccontextmanager
 import requests
 import logging
 import uvicorn
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
 
