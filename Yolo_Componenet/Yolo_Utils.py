@@ -1,17 +1,17 @@
 import logging
-
+import os
 import cv2
 from fastapi import HTTPException
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 import requests
-
 from Yolo_Componenet.YoloV8Detector import YoloV8Detector
+from config.config import FACENET_SERVER_URL
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 detector = YoloV8Detector("../yolov8l.pt")
-face_comparison_server_url = "http://127.0.0.1:8001/compare/"
+face_comparison_server_url = os.path.join(FACENET_SERVER_URL, "compare/")
 detected_frames = {}
 
 
@@ -52,10 +52,11 @@ def annotate_frame(frame, frame_obj, similarity_threshold):
             if similarity is not None and similarity > similarity_threshold:
                 x1, y1, x2, y2 = detection.coordinates
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                cv2.putText(frame, f"{similarity:.2f}%", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (36, 255, 12), 2)
+                cv2.putText(frame, f"{similarity:.2f}%", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 3)
                 detection.similarity = similarity
                 detection.founded = True
-                detected_frames[frame_obj.frame_index] = {"cropped_image":detection.image_base_64 , "similarity": similarity}
+                detected_frames[f"frame_{frame_obj.frame_index}"] = {"cropped_image": detection.image_base_64,
+                                                                     "similarity": similarity}
                 break
             else:
                 logger.warning(f"No similarity score or below threshold for detection: {detection}")
@@ -63,7 +64,7 @@ def annotate_frame(frame, frame_obj, similarity_threshold):
             logger.error(f"Error from face comparison server: {response.status_code} - {response.text}")
 
 
-def create_streaming_response(file_path: str, filename: str):
+def create_streaming_response(file_path: str, filename: str) -> StreamingResponse:
     def iterfile():
         with open(file_path, mode="rb") as file_like:
             yield from file_like

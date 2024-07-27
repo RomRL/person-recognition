@@ -7,11 +7,11 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
-
 from Utils.Log_level import LogLevel
 from Yolo_Componenet.Frame import Frame
-from Yolo_Componenet.utils import process_and_annotate_video, create_streaming_response, logger, detector, \
+from Yolo_Componenet.Yolo_Utils import process_and_annotate_video, create_streaming_response, logger, detector, \
     face_comparison_server_url, detected_frames
+from config.config import YOLO_SERVER_PORT, SIMILARITY_THRESHOLD
 
 
 @asynccontextmanager
@@ -30,7 +30,7 @@ app = FastAPI(
 
 
 class SimilarityThresholdRequest(BaseModel):
-    similarity_threshold: Optional[float] = 20.0
+    similarity_threshold: Optional[float] = SIMILARITY_THRESHOLD
 
 
 @app.post("/set_logging_level/", description="Set the logging level dynamically.")
@@ -152,4 +152,4 @@ async def health_check():
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=YOLO_SERVER_PORT)

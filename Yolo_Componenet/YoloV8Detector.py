@@ -1,7 +1,6 @@
 import cv2
 from ultralytics import YOLO
 import torch
-
 from Yolo_Componenet.Frame import Frame
 from Yolo_Componenet.Detection import Detection
 

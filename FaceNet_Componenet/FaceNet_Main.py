@@ -1,64 +1,16 @@
-import base64
 import numpy as np
-from facenet_pytorch import MTCNN, InceptionResnetV1
 from PIL import Image
-import torch
 import io
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException
 import uvicorn
 import logging
 from contextlib import asynccontextmanager
-from pydantic import BaseModel
 from typing import List
+from FaceNet_Componenet.FaceNet_Utils import logger, preprocess_image, get_embedding, compare_faces_embedding
 from Utils.Log_level import LogLevel
-
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-
-class ThresholdRequest(BaseModel):
-    threshold: float
-
-
-def preprocess_image(image_base64):
-    decoded_image = Image.open(io.BytesIO(base64.b64decode(image_base64)))
-    return decoded_image
-
-
-def get_embedding(image):
-    try:
-        faces, _ = mtcnn.detect(image)
-        if faces is not None and len(faces) > 0:
-            aligned = mtcnn(image)
-            if aligned is not None:
-                aligned = aligned.unsqueeze(0)  # Add batch dimension
-                embedding = resnet(aligned).detach().numpy()
-                logger.debug("Face detected and embedding calculated successfully")
-                return embedding
-        logger.warning("No faces detected in the image.")
-    except Exception as e:
-        logger.error(f"Error in get_embedding: {e}")
-    return None
-
-
-def compare_faces_embedding(embedding, embedding_list):
-    similarity_percentages = []
-    for emb in embedding_list:
-        distance = np.linalg.norm(embedding - emb)
-        similarity = np.exp(-distance) * 100  # Convert distance to similarity percentage
-        similarity_percentages.append(similarity)
-    return max(similarity_percentages)
-
-
-# Initialize MTCNN for face detection
-mtcnn = MTCNN()
-
-# Load pre-trained Inception ResNet model (FaceNet)
-resnet = InceptionResnetV1(pretrained='vggface2').eval()
+from config.config import FACENET_SERVER_PORT
 
 embeddings = None
-similarity_threshold = 1.1  # Default threshold value
 
 
 @asynccontextmanager
@@ -87,17 +39,9 @@ async def set_logging_level(request: LogLevel):
     return {"message": f"Logging level set to {level}"}
 
 
-@app.post("/set_threshold/", description="Set the similarity threshold for face comparison.")
-async def set_threshold(request: ThresholdRequest):
-    global similarity_threshold
-    similarity_threshold = request.threshold
-    logger.info(f"Similarity threshold set to {similarity_threshold}")
-    return {"message": f"Similarity threshold set to {similarity_threshold}"}
-
-
 @app.post("/set_reference_image/", description="Set the reference images for face comparison.")
 async def set_reference_image(files: List[UploadFile] = File(...)):
-    global embeddings, average_embedding
+    global embeddings
     try:
         embeddings = []
         for file in files:
@@ -113,10 +57,9 @@ async def set_reference_image(files: List[UploadFile] = File(...)):
         if embeddings:
             # Calculate the average embedding
             average_embedding = np.mean(embeddings, axis=0)
+            embeddings.append(average_embedding)
             logger.info("Reference embeddings and average embedding calculated successfully")
-            return {
-                "message": "Reference images set, embeddings, and average embedding calculated successfully",
-            }
+            return {"message": "Reference images set, embeddings, and average embedding calculated successfully", "num_embeddings": len(embeddings)}
         else:
             logger.error("Failed to calculate any embeddings from the provided images")
             return {"error": "Failed to calculate any embeddings from the provided images"}
@@ -161,4 +104,4 @@ async def health_check():
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run(app, host="0.0.0.0", port=FACENET_SERVER_PORT)
