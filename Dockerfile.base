@@ -1,0 +1,21 @@
+# Use the NVIDIA PyTorch image with CUDA support
+FROM nvidia/cuda:11.7.1-cudnn8-devel-ubuntu20.04
+
+# Set the working directory in the container
+WORKDIR /app
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the requirements file into the container at /app
+COPY requirements.txt /app/
+
+# Install any dependencies specified in requirements.txt
+RUN echo "Installing dependencies from requirements.txt..." \
+    && pip3 install --no-cache-dir -r requirements.txt \
+    && echo "Dependencies installed."
+
+# Install PyTorch with CUDA support
+RUN pip3 install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu117

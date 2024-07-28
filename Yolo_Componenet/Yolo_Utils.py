@@ -5,17 +5,19 @@ from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 import requests
 from Yolo_Componenet.YoloV8Detector import YoloV8Detector
-from config.config import FACENET_SERVER_URL
+from config.config import FACENET_SERVER_URL, MONGODB_URL
+from motor.motor_asyncio import AsyncIOMotorClient
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 detector = YoloV8Detector("../yolov8l.pt")
 face_comparison_server_url = os.path.join(FACENET_SERVER_URL, "compare/")
-detected_frames = {}
+client = AsyncIOMotorClient(MONGODB_URL)
+db = client["face_recognition"]
+detected_frames_collection = db["detected_frames"]
 
-
-def process_and_annotate_video(video_path: str, similarity_threshold: float) -> str:
+async def process_and_annotate_video(video_path: str, similarity_threshold: float, uuid: str) -> str:
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise HTTPException(status_code=500, detail="Error opening video file")
@@ -26,6 +28,7 @@ def process_and_annotate_video(video_path: str, similarity_threshold: float) -> 
                           (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))))
 
     frame_index = 0
+    detected_frames = {}
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
@@ -34,19 +37,25 @@ def process_and_annotate_video(video_path: str, similarity_threshold: float) -> 
         frame_index += 1
         frame_obj = detector.predict(frame, frame_index=frame_index)
 
-        annotate_frame(frame, frame_obj, similarity_threshold)
+        await annotate_frame(frame, frame_obj, similarity_threshold, detected_frames, uuid)
         out.write(frame)
 
     cap.release()
     out.release()
+
+    # Save detected frames to MongoDB
+    await detected_frames_collection.update_one(
+        {"uuid": uuid},
+        {"$set": {"detected_frames": detected_frames}},
+        upsert=True
+    )
+
     return output_path
 
-
-def annotate_frame(frame, frame_obj, similarity_threshold):
-    global detected_frames
+async def annotate_frame(frame, frame_obj, similarity_threshold, detected_frames, uuid):
     for detection in frame_obj.detections:
         detected_image_base64 = detection.image_base_64
-        response = requests.post(face_comparison_server_url, json={"image_base_64": detected_image_base64})
+        response = requests.post(face_comparison_server_url, params={"uuid": uuid}, json={"image_base_64": detected_image_base64})
         if response.status_code == 200:
             similarity = response.json().get("similarity_percentage")
             if similarity is not None and similarity > similarity_threshold:
@@ -63,7 +72,6 @@ def annotate_frame(frame, frame_obj, similarity_threshold):
         else:
             logger.error(f"Error from face comparison server: {response.status_code} - {response.text}")
 
-
 def create_streaming_response(file_path: str, filename: str) -> StreamingResponse:
     def iterfile():
         with open(file_path, mode="rb") as file_like:
@@ -74,3 +82,5 @@ def create_streaming_response(file_path: str, filename: str) -> StreamingRespons
         'Content-Type': 'video/mp4',
     }
     return StreamingResponse(iterfile(), headers=headers)
+async def fetch_detected_frames(uuid: str):
+    return await detected_frames_collection.find_one({"uuid": uuid})

@@ -1,10 +1,16 @@
 import base64
 import logging
+from typing import List
+
 import numpy as np
 from facenet_pytorch import MTCNN, InceptionResnetV1
 from PIL import Image
 import io
+
+from fastapi import UploadFile
 from sklearn.metrics.pairwise import cosine_similarity
+
+from Utils.db import embedding_collection
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -42,21 +48,6 @@ def get_embedding(image):
         logger.error(f"Error in get_embedding: {e}")
     return None
 
-# def compare_faces_embedding(embedding, embedding_list):
-#     """
-#     Compare the input embedding with a list of embeddings and return the maximum similarity percentage.
-#     :param embedding:
-#     :param embedding_list:
-#     :return: maximum similarity percentage
-#     """
-#     similarity_percentages = []
-#     for emb in embedding_list:
-#         distance = np.linalg.norm(embedding - emb)
-#         similarity = np.exp(-distance) * 100  # Convert distance to similarity percentage
-#         similarity_percentages.append(similarity)
-#     return max(similarity_percentages)
-#
-
 
 def compare_faces_embedding(embedding, embedding_list):
     """
@@ -73,14 +64,51 @@ def compare_faces_embedding(embedding, embedding_list):
     for emb in embedding_list:
         similarity = cosine_similarity(embedding, emb)[0][0]
 
-        # Transform cosine similarity to range [0, 1]
-        similarity = (similarity + 1) / 2  # This transforms [-1, 1] to [0, 1]
 
         # Convert to percentage
         similarity_percentage = similarity * 100
         similarity_percentages.append(similarity_percentage)
 
     return max(similarity_percentages)
+
+
+
+async def process_images(files: List[UploadFile]):
+    embeddings = []
+    for file in files:
+        image_bytes = await file.read()
+        reference_image = Image.open(io.BytesIO(image_bytes))
+        logger.debug("Reference image loaded successfully")
+        embedding = get_embedding(reference_image)
+        if embedding is not None:
+            embeddings.append(embedding)
+        else:
+            logger.error(f"Failed to calculate embedding for image: {file.filename}")
+    return embeddings
+
+
+async def save_embeddings_to_db(uuid: str, embeddings: List[np.ndarray], average_embedding: List[float]):
+    await embedding_collection.update_one(
+        {"uuid": uuid},
+        {"$set": {"embeddings": [e.tolist() for e in embeddings], "average_embedding": average_embedding}},
+        upsert=True
+    )
+    logger.info("Reference embeddings and average embedding calculated successfully")
+
+
+async def get_reference_embeddings(uuid: str):
+    return await embedding_collection.find_one({"uuid": uuid})
+
+
+async def calculate_similarity(record, detected_image_base64):
+    embeddings = [np.array(e) for e in record["embeddings"]]
+    detected_image = preprocess_image(detected_image_base64)
+    detected_embedding = get_embedding(detected_image)
+    if detected_embedding is not None:
+        return compare_faces_embedding(embedding=detected_embedding, embedding_list=embeddings)
+    else:
+        logger.debug("Face not detected in the image")
+        return 0
 
 # def euclidean_distance(vec1, vec2):
 #     """

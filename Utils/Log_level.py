@@ -1,3 +1,4 @@
+import logging
 from enum import Enum
 
 
@@ -10,3 +11,11 @@ class LogLevel(str, Enum):
     WARNING = 'WARNING'
     ERROR = 'ERROR'
     CRITICAL = 'CRITICAL'
+
+
+def set_log_level(level: str, logger):
+    logger.setLevel(level)
+    logging.getLogger("uvicorn.access").setLevel(level)
+    logging.getLogger("uvicorn.error").setLevel(level)
+    logging.getLogger("uvicorn").setLevel(level)
+    logger.info(f"Logging level set to {level}")
