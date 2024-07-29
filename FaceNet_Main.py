@@ -1,5 +1,7 @@
+import json
+
 import numpy as np
-from fastapi import FastAPI, Request, UploadFile, File, HTTPException
+from fastapi import FastAPI, Request, UploadFile, File, HTTPException, Form
 import uvicorn
 import logging
 from contextlib import asynccontextmanager
@@ -38,19 +40,23 @@ async def set_logging_level(request: LogLevel):
 
 
 @app.post("/set_reference_image/", description="Set the reference images for face comparison.")
-async def set_reference_image(uuid: str, files: List[UploadFile] = File(...)):
+async def set_reference_image(uuid: str, files: List[UploadFile] = File(...), user_details: str = Form(...)):
     try:
+        # Parse user details
+        user_details_dict = json.loads(user_details)
+
         embeddings = await process_images(files)
         if not embeddings:
             return JSONResponse(status_code=400,
                                 content={"error": "Failed to calculate any embeddings from the provided images"})
 
-        average_embedding = np.mean(embeddings, axis=0).tolist()
-        await save_embeddings_to_db(uuid, embeddings, average_embedding)
+        await save_embeddings_to_db(uuid, embeddings, user_details_dict)
         return JSONResponse(status_code=200, content={
             "message": "Reference images set, embeddings, and average embedding calculated successfully",
             "num_embeddings": len(embeddings)
         })
+    except json.JSONDecodeError:
+        return JSONResponse(content={"error": "Invalid user_details format. It should be a valid JSON string."}, status_code=400)
     except Exception as e:
         logger.error(f"Error setting reference images: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})

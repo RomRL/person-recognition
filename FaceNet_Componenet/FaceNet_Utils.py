@@ -20,6 +20,7 @@ mtcnn = MTCNN()
 # Load pre-trained Inception ResNet model (FaceNet)
 resnet = InceptionResnetV1(pretrained='vggface2').eval()
 
+
 def preprocess_image(image_base64):
     """
     Preprocess the image by decoding the base64 string.
@@ -64,13 +65,11 @@ def compare_faces_embedding(embedding, embedding_list):
     for emb in embedding_list:
         similarity = cosine_similarity(embedding, emb)[0][0]
 
-
         # Convert to percentage
         similarity_percentage = similarity * 100
         similarity_percentages.append(similarity_percentage)
 
     return max(similarity_percentages)
-
 
 
 async def process_images(files: List[UploadFile]):
@@ -87,12 +86,49 @@ async def process_images(files: List[UploadFile]):
     return embeddings
 
 
-async def save_embeddings_to_db(uuid: str, embeddings: List[np.ndarray], average_embedding: List[float]):
-    await embedding_collection.update_one(
-        {"uuid": uuid},
-        {"$set": {"embeddings": [e.tolist() for e in embeddings], "average_embedding": average_embedding}},
-        upsert=True
-    )
+async def save_embeddings_to_db(uuid: str, new_embeddings: List[np.ndarray], user_details: dict):
+    existing_record = await embedding_collection.find_one({"uuid": uuid})
+    if existing_record:
+        # Merge existing user details with new user details
+        existing_user_details = existing_record.get("user_details", {})
+        existing_user_details.update(user_details)
+
+        # Get the existing embeddings
+        existing_embeddings = existing_record.get("embeddings", [])
+        # Convert existing embeddings to numpy arrays for comparison
+        existing_embeddings = [np.array(e) for e in existing_embeddings]
+
+        # Add only new embeddings that are not already in the existing embeddings
+        unique_embeddings = []
+        for emb in new_embeddings:
+            if not any(np.array_equal(emb, existing_emb) for existing_emb in existing_embeddings):
+                unique_embeddings.append(emb)
+
+        # Append the unique embeddings to the existing embeddings
+        embeddings_to_save = existing_embeddings + unique_embeddings
+
+        # Calculate the new average embedding
+        if embeddings_to_save:
+            average_embedding = np.mean(embeddings_to_save, axis=0).tolist()
+        else:
+            average_embedding = existing_record.get("average_embedding", [])
+
+        await embedding_collection.update_one(
+            {"uuid": uuid},
+            {"$set": {"embeddings": [e.tolist() for e in embeddings_to_save], "average_embedding": average_embedding, "user_details": existing_user_details}},
+            upsert=True
+        )
+    else:
+        # Calculate the average embedding for new embeddings
+        if new_embeddings:
+            average_embedding = np.mean(new_embeddings, axis=0).tolist()
+        else:
+            average_embedding = existing_record.get("average_embedding", [])
+        await embedding_collection.update_one(
+            {"uuid": uuid},
+            {"$set": {"embeddings": [e.tolist() for e in new_embeddings], "average_embedding": average_embedding, "user_details": user_details}},
+            upsert=True
+        )
     logger.info("Reference embeddings and average embedding calculated successfully")
 
 

@@ -6,9 +6,10 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
 from Utils.Log_level import LogLevel, set_log_level
-from Yolo_Componenet.Yolo_Utils import process_and_annotate_video, create_streaming_response, logger, fetch_detected_frames
+from Yolo_Componenet.Yolo_Utils import process_and_annotate_video, create_streaming_response, logger, \
+    fetch_detected_frames
 from config.config import YOLO_SERVER_PORT, SIMILARITY_THRESHOLD
-from Utils.db import check_mongo
+from Utils.db import check_mongo, delete_many_detected_frames_collection
 
 
 @asynccontextmanager
@@ -41,13 +42,14 @@ async def set_logging_level(request: LogLevel):
 
 
 @app.post("/detect_and_annotate/", response_description="Annotated video file")
-async def detect_and_annotate_video(uuid: str, file: UploadFile = File(...), similarity_threshold: float = 20.0):
+async def detect_and_annotate_video(uuid: str, running_id: str, file: UploadFile = File(...),
+                                    similarity_threshold: float = 20.0):
     try:
         with tempfile.NamedTemporaryFile(delete=False) as tmp:
             tmp.write(await file.read())
             tmp_path = tmp.name
 
-        output_path = await process_and_annotate_video(tmp_path, similarity_threshold, uuid)
+        output_path = await process_and_annotate_video(tmp_path, similarity_threshold, uuid, running_id)
         return create_streaming_response(output_path, "annotated_video.mp4")
     except Exception as e:
         logger.error(f"Error in detect_and_annotate_video endpoint:\n {e}")
@@ -55,15 +57,16 @@ async def detect_and_annotate_video(uuid: str, file: UploadFile = File(...), sim
 
 
 @app.get("/get_detected_frames/", description="Get the detected frames from the last processed video.")
-async def get_detected_frames(uuid: str):
+async def get_detected_frames(uuid: str, running_id: str):
     try:
-        detected_frames = await fetch_detected_frames(uuid)
-        if detected_frames:
-            return JSONResponse(content={"detected_frames": detected_frames["detected_frames"], "status": "success"},
-                                status_code=200)
-        else:
-            return JSONResponse(content={"status": "error", "message": "No detected frames found for the given UUID."},
-                                status_code=404)
+        detected_frames = await fetch_detected_frames(uuid, running_id)
+        if detected_frames and "detected_frames" in detected_frames and detected_frames["detected_frames"]:
+            return JSONResponse(content={"detected_frames": detected_frames, "status": "success"}, status_code=200)
+        if detected_frames and "user_details" in detected_frames:
+            return JSONResponse(content={"status": "error", "message": "No detected frames found for the given UUID.",
+                                         "user_details": detected_frames["user_details"]}, status_code=201)
+        return JSONResponse(content={"status": "error", "message": "No detected frames found for the given UUID."},
+                            status_code=404)
     except Exception as e:
         logger.error(f"Error in get_detected_frames endpoint: {e}")
         return JSONResponse(content={"error": str(e)}, status_code=500)
@@ -72,7 +75,7 @@ async def get_detected_frames(uuid: str):
 @app.get("/health/", description="Health check endpoint to verify that the application is running.")
 async def health_check():
     try:
-        if check_mongo():
+        if await check_mongo():
             logger.info("Health check successful.")
             return JSONResponse(content={"status": "healthy"}, status_code=200)
         else:
@@ -81,6 +84,16 @@ async def health_check():
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         return JSONResponse(content={"status": "unhealthy", "error": str(e)}, status_code=500)
+
+
+@app.delete("/purge_detected_frames/", description="Purge the detected frames collection.")
+async def purge_detected_frames():
+    try:
+        delete_many_detected_frames_collection()
+        return JSONResponse(content={"message": "Detected frames collection purged successfully."}, status_code=200)
+    except Exception as e:
+        logger.error(f"Error purging detected frames collection: {e}")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
 if __name__ == "__main__":

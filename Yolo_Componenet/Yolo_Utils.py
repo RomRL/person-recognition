@@ -4,6 +4,8 @@ import cv2
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 import requests
+
+from Utils.db import detected_frames_collection ,embedding_collection
 from Yolo_Componenet.YoloV8Detector import YoloV8Detector
 from config.config import FACENET_SERVER_URL, MONGODB_URL
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -14,10 +16,9 @@ logger = logging.getLogger(__name__)
 detector = YoloV8Detector("../yolov8l.pt")
 face_comparison_server_url = os.path.join(FACENET_SERVER_URL, "compare/")
 client = AsyncIOMotorClient(MONGODB_URL)
-db = client["face_recognition"]
-detected_frames_collection = db["detected_frames"]
 
-async def process_and_annotate_video(video_path: str, similarity_threshold: float, uuid: str) -> str:
+
+async def process_and_annotate_video(video_path: str, similarity_threshold: float, uuid: str,running_id:str) -> str:
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise HTTPException(status_code=500, detail="Error opening video file")
@@ -37,7 +38,7 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
         frame_index += 1
         frame_obj = detector.predict(frame, frame_index=frame_index)
 
-        await annotate_frame(frame, frame_obj, similarity_threshold, detected_frames, uuid)
+        await annotate_frame(frame, frame_obj, similarity_threshold, detected_frames, uuid,running_id)
         out.write(frame)
 
     cap.release()
@@ -46,16 +47,19 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
     # Save detected frames to MongoDB
     await detected_frames_collection.update_one(
         {"uuid": uuid},
+        {"running_id":running_id},
         {"$set": {"detected_frames": detected_frames}},
         upsert=True
     )
 
     return output_path
 
+
 async def annotate_frame(frame, frame_obj, similarity_threshold, detected_frames, uuid):
     for detection in frame_obj.detections:
         detected_image_base64 = detection.image_base_64
-        response = requests.post(face_comparison_server_url, params={"uuid": uuid}, json={"image_base_64": detected_image_base64})
+        response = requests.post(face_comparison_server_url, params={"uuid": uuid},
+                                 json={"image_base_64": detected_image_base64})
         if response.status_code == 200:
             similarity = response.json().get("similarity_percentage")
             if similarity is not None and similarity > similarity_threshold:
@@ -70,17 +74,30 @@ async def annotate_frame(frame, frame_obj, similarity_threshold, detected_frames
             else:
                 logger.warning(f"No similarity score or below threshold for detection: {detection}")
         else:
-            logger.error(f"Error from face comparison server: {response.status_code} - {response.text}")
+            error_message = response.json().get("detail", "Unknown error")
+            logger.error(f"Error from face comparison server: {response.status_code} - {error_message}")
+            raise HTTPException(status_code=response.status_code,
+                                detail=f"Face comparison server error: {error_message}")
 
-def create_streaming_response(file_path: str, filename: str) -> StreamingResponse:
-    def iterfile():
-        with open(file_path, mode="rb") as file_like:
-            yield from file_like
 
-    headers = {
-        'Content-Disposition': f'attachment; filename="{filename}"',
-        'Content-Type': 'video/mp4',
-    }
-    return StreamingResponse(iterfile(), headers=headers)
-async def fetch_detected_frames(uuid: str):
-    return await detected_frames_collection.find_one({"uuid": uuid})
+def create_streaming_response(file_path: str, filename: str):
+    return StreamingResponse(
+        iterfile(file_path),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
+async def iterfile(file_path: str):
+    with open(file_path, mode="rb") as file_like:
+        while True:
+            chunk = file_like.read(1024)
+            if not chunk:
+                break
+            yield chunk
+
+
+async def fetch_detected_frames(uuid: str,running_id:str):
+    detected_frames = await detected_frames_collection.find_one({"uuid": uuid},{"running_id":running_id})
+    extra_details = await embedding_collection.find_one({"uuid": uuid})
+    return {**detected_frames, **extra_details}
