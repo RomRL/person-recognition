@@ -26,9 +26,11 @@ async def insert_detected_frames_separately(uuid: str, running_id: str, detected
             "uuid": uuid,
             "running_id": running_id,
             "frame_index": frame_index,
-            "frame_data": frame_data
+            "frame_data": frame_data,
+            "embedded": False,
         }
         await detected_frames_collection.insert_one(frame_document)
+
 
 async def process_and_annotate_video(video_path: str, similarity_threshold: float, uuid: str, running_id: str) -> str:
     cap = cv2.VideoCapture(video_path)
@@ -99,14 +101,15 @@ async def annotate_frame(frame, frame_obj, similarity_threshold, detected_frames
 
 
 def create_streaming_response(file_path: str, filename: str):
+    logger.info(f"Creating streaming response for file: {file_path}")
     return StreamingResponse(
-        iterfile(file_path),
+        iter_file(file_path),
         media_type="video/mp4",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
 
-async def iterfile(file_path: str):
+async def iter_file(file_path: str):
     if not os.path.exists(file_path):
         logger.error(f"File not found: {file_path}")
         raise HTTPException(status_code=404, detail="File not found")
@@ -133,7 +136,8 @@ async def fetch_detected_frames(uuid: str, running_id: str):
 
 def reencode_video(input_path, output_path):
     try:
-        ffmpeg.input(input_path).output(output_path, vcodec='libx264', acodec='aac', strict='-2').run()
+        ffmpeg.input(input_path).output(output_path, vcodec='libx264', acodec='aac', strict='-2').global_args(
+            '-loglevel', 'quiet', '-hide_banner').run()
         logger.info("Video re-encoded successfully!")
     except ffmpeg.Error as e:
         logger.error(f"Error occurred during re-encoding: {e.stderr}")
