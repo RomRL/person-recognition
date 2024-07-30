@@ -46,25 +46,23 @@ async def set_logging_level(request: LogLevel):
 
 
 @app.post("/set_reference_image/", description="Set the reference images for face comparison.")
-async def set_reference_image(uuid: str, files: List[UploadFile] = File(...), user_details: str = Form(...)):
+async def set_reference_image(uuid: str):
     try:
-        # Parse user details
-        user_details_dict = json.loads(user_details)
+        # Query detected_frames_collection for documents with similarity > 80 and the same uuid
+        new_embeddings = await embedding_manager.process_detected_frames(uuid, face_embedding)
 
-        embeddings = await embedding_manager.process_images(files, face_embedding)
-        if not embeddings:
-            return JSONResponse(status_code=400, content={"error": "Failed to calculate any embeddings from the provided images"})
+        # Save unique embeddings to embedding_collection
+        if new_embeddings:
+            await embedding_manager.save_embeddings_to_db(uuid, new_embeddings, {})
 
-        await embedding_manager.save_embeddings_to_db(uuid, embeddings, user_details_dict)
         return JSONResponse(status_code=200, content={
             "message": "Reference images set, embeddings, and average embedding calculated successfully",
-            "num_embeddings": len(embeddings)
+            "num_embeddings": len(new_embeddings)
         })
-    except json.JSONDecodeError:
-        return JSONResponse(content={"error": "Invalid user_details format. It should be a valid JSON string."}, status_code=400)
     except Exception as e:
         logger.error(f"Error setting reference images: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
+
 
 
 @app.post("/compare/", description="Compare an uploaded image with the reference image and return the similarity percentage.")

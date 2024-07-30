@@ -10,9 +10,10 @@ class YoloV8Detector:
     A class to handle YOLOv8 model loading and predictions.
     """
 
-    def __init__(self, model_path):
+    def __init__(self, model_path, logger):
         # Load the YOLO model
         self.model = YOLO(model_path)
+        self.logger = logger
         self._choose_running_device()
 
     def _choose_running_device(self):
@@ -21,10 +22,11 @@ class YoloV8Detector:
         """
         device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model.to(device)
-        print(f'Model running on device: {next(self.model.parameters()).device}')  # Check device of the model again
+        self.logger.info(
+            f'Model running on device: {next(self.model.parameters()).device}')  # Check device of the model again
         if device == "cuda":
-            print(f"Number of GPUs available: {torch.cuda.device_count()}")
-            print(f"GPU name: {torch.cuda.get_device_name(0)}")
+            self.logger.info(f"Number of GPUs available: {torch.cuda.device_count()}\n"
+                             f"GPU name: {torch.cuda.get_device_name(0)}")
 
     def predict(self, frame, frame_index):
         """
@@ -67,4 +69,3 @@ class YoloV8Detector:
 
         cap.release()
         return frames
-

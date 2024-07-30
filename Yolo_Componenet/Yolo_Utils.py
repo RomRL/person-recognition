@@ -15,7 +15,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-detector = YoloV8Detector("../yolov8l.pt")
+detector = YoloV8Detector("../yolov8l.pt", logger)
 face_comparison_server_url = FACENET_SERVER_URL + "/compare/"
 client = AsyncIOMotorClient(MONGODB_URL)
 
@@ -36,7 +36,7 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise HTTPException(status_code=500, detail="Error opening video file")
-
+    print_to_log_video_parameters(cap)
     output_path = video_path + "_annotated.mp4"
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Using mp4v codec for MPEG-4
     out = cv2.VideoWriter(output_path, fourcc, cap.get(cv2.CAP_PROP_FPS),
@@ -84,8 +84,34 @@ async def annotate_frame(frame, frame_obj, similarity_threshold, detected_frames
             similarity = response.json().get("similarity_percentage")
             if similarity is not None and similarity > similarity_threshold:
                 x1, y1, x2, y2 = detection.coordinates
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                cv2.putText(frame, f"{similarity:.2f}%", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 3)
+
+                # Ensure coordinates are within frame boundaries
+                x1 = max(0, x1)
+                y1 = max(0, y1)
+                x2 = min(frame.shape[1], x2)
+                y2 = min(frame.shape[0], y2)
+
+                # Draw bounding box in red
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+
+                # Position text above the bounding box and ensure it fits within the frame
+                text = f"{similarity:.2f}%"
+                font = cv2.FONT_HERSHEY_COMPLEX
+                font_scale = 0.8
+                font_thickness = 2
+
+                # Calculate text size and position
+                text_size = cv2.getTextSize(text, font, font_scale, font_thickness)[0]
+                text_x = x1
+                text_y = y1 - 10 if y1 - 10 > 10 else y1 + text_size[1] + 10
+
+                # Draw background rectangle for text
+                cv2.rectangle(frame, (text_x, text_y - text_size[1] - 5),
+                              (text_x + text_size[0], text_y + 5), (0, 0, 255), cv2.FILLED)
+
+                # Draw text in white
+                cv2.putText(frame, text, (text_x, text_y), font, font_scale, (255, 255, 255), font_thickness)
+
                 detection.similarity = similarity
                 detection.founded = True
                 detected_frames[f"frame_{frame_obj.frame_index}"] = {"cropped_image": detection.image_base_64,
@@ -141,3 +167,10 @@ def reencode_video(input_path, output_path):
         logger.info("Video re-encoded successfully!")
     except ffmpeg.Error as e:
         logger.error(f"Error occurred during re-encoding: {e.stderr}")
+
+
+def print_to_log_video_parameters(cap):
+    logger.info(f"Number of frames: {cap.get(cv2.CAP_PROP_FRAME_COUNT)}")
+    logger.info(f"Frame width: {cap.get(cv2.CAP_PROP_FRAME_WIDTH)}")
+    logger.info(f"Frame height: {cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}")
+    logger.info(f"FPS: {cap.get(cv2.CAP_PROP_FPS)}")
