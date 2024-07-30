@@ -15,7 +15,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-
 class FaceEmbedding:
     def __init__(self, device: str):
         self.device = device
@@ -97,7 +96,8 @@ class EmbeddingManager:
         logger.info("Reference embeddings and average embedding calculated successfully")
 
     async def process_detected_frames(self, uuid: str, face_embedding: FaceEmbedding) -> List[np.ndarray]:
-        cursor = detected_frames_collection.find({"uuid": uuid, "frame_data.similarity": {"$gt": 80}})
+        cursor = detected_frames_collection.find(
+            {"uuid": uuid, "embedded": False, "frame_data.similarity": {"$gt": 80}})
         new_embeddings = []
         existing_embeddings = await self.get_existing_embeddings(uuid)
         async for doc in cursor:
@@ -106,10 +106,7 @@ class EmbeddingManager:
             cropped_image = face_embedding.preprocess_image(cropped_image_base64)
             embedding = face_embedding.get_embedding(cropped_image)
             if embedding is not None:
-                # Check if the embedding is unique before adding
-                if self.is_unique_embedding(embedding, existing_embeddings, threshold=0.2):
-                    new_embeddings.append(embedding)
-                    existing_embeddings.append(embedding)
+                new_embeddings.append(embedding)
         return new_embeddings
 
     async def get_existing_embeddings(self, uuid: str) -> List[np.ndarray]:
@@ -118,14 +115,21 @@ class EmbeddingManager:
             return [np.array(e) for e in record.get("embeddings", [])]
         return []
 
-    def is_unique_embedding(self, new_embedding: np.ndarray, existing_embeddings: List[np.ndarray], threshold: float = 0.2) -> bool:
+    def is_unique_embedding(self, new_embedding: np.ndarray, existing_embeddings: List[np.ndarray],
+                            threshold: float = 0.2) -> bool:
         for existing_embedding in existing_embeddings:
-            similarity = cosine_similarity(new_embedding.reshape(1, -1), existing_embedding.reshape(1, -1))
-            if similarity >= (1 - threshold):
+            similarity = self.compare_embeddings(new_embedding, existing_embedding)
+            if similarity >= 80.0:
                 return False
         return True
 
-    async def process_images(files: List[UploadFile], face_embedding: FaceEmbedding) -> List[np.ndarray]:
+    def compare_embeddings(self, emb1: np.ndarray, emb2: np.ndarray) -> float:
+        emb1 = emb1.reshape(1, -1)
+        emb2 = emb2.reshape(1, -1)
+        similarity = cosine_similarity(emb1, emb2)[0][0] * 100
+        return similarity
+
+    async def process_images(self, files: List[UploadFile], face_embedding: FaceEmbedding) -> List[np.ndarray]:
         embeddings = []
         for file in files:
             image_bytes = await file.read()
@@ -138,10 +142,11 @@ class EmbeddingManager:
                 logger.error(f"Failed to calculate embedding for image: {file.filename}")
         return embeddings
 
-    async def handle_existing_record(self, existing_record: Dict, new_embeddings: List[np.ndarray], user_details: Dict) -> Dict:
+    async def handle_existing_record(self, existing_record: Dict, new_embeddings: List[np.ndarray],
+                                     user_details: Dict) -> Dict:
         existing_user_details = self.merge_user_details(existing_record, user_details)
         existing_embeddings = self.convert_to_numpy(existing_record.get("embeddings", []))
-        unique_embeddings = self.filter_unique_embeddings(new_embeddings, existing_embeddings)
+        unique_embeddings = self.filter_unique_embeddings_dynamically(new_embeddings, existing_embeddings)
         embeddings_to_save = existing_embeddings + unique_embeddings
         average_embedding = self.calculate_average_embedding(embeddings_to_save, existing_record)
 
@@ -171,8 +176,22 @@ class EmbeddingManager:
         return [np.array(e) for e in embeddings]
 
     @staticmethod
-    def filter_unique_embeddings(new_embeddings: List[np.ndarray], existing_embeddings: List[np.ndarray]) -> List[np.ndarray]:
-        return [emb for emb in new_embeddings if not any(np.array_equal(emb, existing_emb) for existing_emb in existing_embeddings)]
+    def filter_unique_embeddings_dynamically(new_embeddings: List[np.ndarray], existing_embeddings: List[np.ndarray],
+                                             threshold: float = 0.1) -> List[np.ndarray]:
+        unique_embeddings = []
+
+        for new_emb in new_embeddings:
+            is_unique = True
+            for existing_emb in existing_embeddings:
+                similarity = cosine_similarity(new_emb.reshape(1, -1), existing_emb.reshape(1, -1))[0][0]
+                if similarity >= (1 - threshold):
+                    is_unique = False
+                    break
+            if is_unique:
+                existing_embeddings.append(new_emb)
+                unique_embeddings.append(new_emb)
+
+        return unique_embeddings
 
     @staticmethod
     def calculate_average_embedding(embeddings: List[np.ndarray], existing_record: Dict = None) -> List:
@@ -185,8 +204,7 @@ class EmbeddingManager:
     async def get_reference_embeddings(self, uuid: str):
         return await self.collection.find_one({"uuid": uuid})
 
-    @staticmethod
-    async def calculate_similarity(record, detected_image_base64: str, face_embedding: FaceEmbedding) -> float:
+    async def calculate_similarity(self, record, detected_image_base64: str, face_embedding: FaceEmbedding) -> float:
         embeddings = [np.array(e) for e in record["embeddings"]]
         detected_image = face_embedding.preprocess_image(detected_image_base64)
         detected_embedding = face_embedding.get_embedding(detected_image)

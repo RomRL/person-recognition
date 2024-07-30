@@ -46,10 +46,16 @@ async def set_logging_level(request: LogLevel):
 
 
 @app.post("/set_reference_image/", description="Set the reference images for face comparison.")
-async def set_reference_image(uuid: str):
+async def set_reference_image(uuid: str, files: List[UploadFile] = File(...)):
     try:
+        # Process images from files
+        file_embeddings = await embedding_manager.process_images(files, face_embedding)
+
         # Query detected_frames_collection for documents with similarity > 80 and the same uuid
-        new_embeddings = await embedding_manager.process_detected_frames(uuid, face_embedding)
+        detected_embeddings = await embedding_manager.process_detected_frames(uuid, face_embedding)
+
+        # Combine file embeddings and detected frame embeddings
+        new_embeddings = file_embeddings + detected_embeddings
 
         # Save unique embeddings to embedding_collection
         if new_embeddings:
@@ -64,16 +70,18 @@ async def set_reference_image(uuid: str):
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
-
-@app.post("/compare/", description="Compare an uploaded image with the reference image and return the similarity percentage.")
+@app.post("/compare/",
+          description="Compare an uploaded image with the reference image and return the similarity percentage.")
 async def compare_faces_endpoint(uuid: str, request: Request):
     try:
         record = await embedding_manager.get_reference_embeddings(uuid)
         if not record:
-            return JSONResponse(status_code=400, content={"detail": "Reference embeddings not set. Please use /set_reference_image first."})
+            return JSONResponse(status_code=400, content={
+                "detail": "Reference embeddings not set. Please use /set_reference_image first."})
 
         detected_image_base64 = (await request.json()).get("image_base_64")
-        similarity_percentage = await embedding_manager.calculate_similarity(record, detected_image_base64, face_embedding)
+        similarity_percentage = await embedding_manager.calculate_similarity(record, detected_image_base64,
+                                                                             face_embedding)
         return JSONResponse(status_code=200, content={"similarity_percentage": similarity_percentage})
     except Exception as e:
         logger.error(f"Error in compare_faces_endpoint: {e}")

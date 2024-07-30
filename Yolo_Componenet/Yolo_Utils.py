@@ -55,7 +55,7 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
 
         frame_index += 1
         frame_obj = detector.predict(frame, frame_index=frame_index)
-
+        logger.info(f"Processing frame {frame_index}/{cap.get(cv2.CAP_PROP_FRAME_COUNT)}")
         await annotate_frame(frame, frame_obj, similarity_threshold, detected_frames, uuid)
         out.write(frame)
 
@@ -76,6 +76,7 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
 
 
 async def annotate_frame(frame, frame_obj, similarity_threshold, detected_frames, uuid):
+    logger.info(f"Found in frame {frame_obj.frame_index}: {len(frame_obj.detections)} detections")
     for detection in frame_obj.detections:
         detected_image_base64 = detection.image_base_64
         response = requests.post(face_comparison_server_url, params={"uuid": uuid},
@@ -83,6 +84,7 @@ async def annotate_frame(frame, frame_obj, similarity_threshold, detected_frames
         if response.status_code == 200:
             similarity = response.json().get("similarity_percentage")
             if similarity is not None and similarity > similarity_threshold:
+                logger.info(f"Similarity score: {similarity:.2f}% for detection: {detection.frame_index}, Accepted")
                 x1, y1, x2, y2 = detection.coordinates
 
                 # Ensure coordinates are within frame boundaries
@@ -162,6 +164,7 @@ async def fetch_detected_frames(uuid: str, running_id: str):
 
 def reencode_video(input_path, output_path):
     try:
+        logger.info("Re-encoding video...")
         ffmpeg.input(input_path).output(output_path, vcodec='libx264', acodec='aac', strict='-2').global_args(
             '-loglevel', 'quiet', '-hide_banner').run()
         logger.info("Video re-encoded successfully!")
