@@ -79,6 +79,8 @@ async def compare_faces_endpoint(uuid: str, request: Request):
         return JSONResponse(status_code=500, content={"detail": str(e)})
 
 
+
+
 @app.get("/health/", description="Health check endpoint to verify that the application is running.")
 async def health_check():
     try:

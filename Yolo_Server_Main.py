@@ -19,6 +19,7 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down...")
     logger.info("Application stopped.")
 
+
 app = FastAPI(
     lifespan=lifespan,
     title="YOLOv8 Detection and Face Comparison API",
@@ -44,12 +45,15 @@ async def set_logging_level(request: LogLevel):
 async def detect_and_annotate_video(uuid: str, running_id: str, file: UploadFile = File(...),
                                     similarity_threshold: float = 20.0):
     try:
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
             tmp.write(await file.read())
             tmp_path = tmp.name
+            logger.info(f"Temporary file created at {tmp_path}")
 
         output_path = await process_and_annotate_video(tmp_path, similarity_threshold, uuid, running_id)
-        return create_streaming_response(output_path, "annotated_video.mp4")
+        logger.info(f"Annotated video file created at {output_path}")
+
+        return create_streaming_response(output_path, f"{uuid}_{running_id}_annotated_video.mp4")
     except Exception as e:
         logger.error(f"Error in detect_and_annotate_video endpoint:\n {e}")
         return JSONResponse(content={"error": str(e)}, status_code=500)
@@ -59,11 +63,8 @@ async def detect_and_annotate_video(uuid: str, running_id: str, file: UploadFile
 async def get_detected_frames(uuid: str, running_id: str):
     try:
         detected_frames = await fetch_detected_frames(uuid, running_id)
-        if detected_frames and "detected_frames" in detected_frames and detected_frames["detected_frames"]:
+        if detected_frames and detected_frames:
             return JSONResponse(content={"detected_frames": detected_frames, "status": "success"}, status_code=200)
-        if detected_frames and "user_details" in detected_frames:
-            return JSONResponse(content={"status": "error", "message": "No detected frames found for the given UUID.",
-                                         "user_details": detected_frames["user_details"]}, status_code=201)
         return JSONResponse(content={"status": "error", "message": "No detected frames found for the given UUID."},
                             status_code=404)
     except Exception as e:

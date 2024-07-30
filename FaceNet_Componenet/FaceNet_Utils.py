@@ -8,14 +8,17 @@ import io
 from fastapi import UploadFile
 from sklearn.metrics.pairwise import cosine_similarity
 from Utils.db import embedding_collection
+import torch
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
 # Initialize MTCNN for face detection
-mtcnn = MTCNN()
+mtcnn = MTCNN(device=device)
 # Load pre-trained Inception ResNet model (FaceNet)
-resnet = InceptionResnetV1(pretrained='vggface2').eval()
+resnet = InceptionResnetV1(pretrained='vggface2').eval().to(device)
 
 
 def preprocess_image(image_base64):
@@ -54,19 +57,20 @@ def compare_faces_embedding(embedding, embedding_list):
     :param embedding_list: list of embeddings to compare against
     :return: maximum similarity percentage
     """
-    # Reshape embeddings to 2D arrays if necessary
-    embedding = embedding.reshape(1, -1)
-    embedding_list = [emb.reshape(1, -1) for emb in embedding_list]
+    # Convert the embedding list to a NumPy array if it's not already
+    embedding_array = np.array(embedding_list)
 
-    similarity_percentages = []
-    for emb in embedding_list:
-        similarity = cosine_similarity(embedding, emb)[0][0]
+    # Compute cosine similarities in a vectorized manner
+    similarities = cosine_similarity(embedding.reshape(1, -1), embedding_array)
 
-        # Convert to percentage
-        similarity_percentage = similarity * 100
-        similarity_percentages.append(similarity_percentage)
+    # Convert to percentages
+    similarity_percentages = similarities[0] * 100
 
-    return max(similarity_percentages)
+    # Log the similarity percentages (optional)
+    logger.info(f"Similarity percentages: {similarity_percentages}")
+
+    # Return the maximum similarity percentage
+    return np.max(similarity_percentages)
 
 
 async def process_images(files: List[UploadFile]):
@@ -133,7 +137,8 @@ def convert_to_numpy(embeddings: List[Union[List, np.ndarray]]) -> List[np.ndarr
     return [np.array(e) for e in embeddings]
 
 
-def filter_unique_embeddings(new_embeddings: List[np.ndarray], existing_embeddings: List[np.ndarray]) -> List[np.ndarray]:
+def filter_unique_embeddings(new_embeddings: List[np.ndarray], existing_embeddings: List[np.ndarray]) -> List[
+    np.ndarray]:
     return [emb for emb in new_embeddings if
             not any(np.array_equal(emb, existing_emb) for existing_emb in existing_embeddings)]
 
