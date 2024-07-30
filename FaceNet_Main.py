@@ -1,5 +1,4 @@
-import json
-from fastapi import FastAPI, Request, UploadFile, File, Form
+from fastapi import FastAPI, Request, UploadFile, File
 import uvicorn
 import logging
 from contextlib import asynccontextmanager

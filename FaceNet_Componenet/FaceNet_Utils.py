@@ -68,9 +68,10 @@ class FaceEmbedding:
 
         # Convert to percentages
         similarity_percentages = similarities[0] * 100
+        similarity_percentages = np.round(similarity_percentages, 2)
 
         # Log the similarity percentages (optional)
-        logger.info(f"Similarity percentages: {similarity_percentages}")
+        logger.info(f"Similarity percentages:\n {similarity_percentages}")
 
         # Return the maximum similarity percentage
         return np.max(similarity_percentages)
