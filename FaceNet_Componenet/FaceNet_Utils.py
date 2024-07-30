@@ -1,15 +1,12 @@
 import base64
 import logging
-from typing import List
-
+from typing import List, Dict, Union
 import numpy as np
 from facenet_pytorch import MTCNN, InceptionResnetV1
 from PIL import Image
 import io
-
 from fastapi import UploadFile
 from sklearn.metrics.pairwise import cosine_similarity
-
 from Utils.db import embedding_collection
 
 # Set up logging
@@ -88,48 +85,65 @@ async def process_images(files: List[UploadFile]):
 
 async def save_embeddings_to_db(uuid: str, new_embeddings: List[np.ndarray], user_details: dict):
     existing_record = await embedding_collection.find_one({"uuid": uuid})
+
     if existing_record:
-        # Merge existing user details with new user details
-        existing_user_details = existing_record.get("user_details", {})
-        existing_user_details.update(user_details)
-
-        # Get the existing embeddings
-        existing_embeddings = existing_record.get("embeddings", [])
-        # Convert existing embeddings to numpy arrays for comparison
-        existing_embeddings = [np.array(e) for e in existing_embeddings]
-
-        # Add only new embeddings that are not already in the existing embeddings
-        unique_embeddings = []
-        for emb in new_embeddings:
-            if not any(np.array_equal(emb, existing_emb) for existing_emb in existing_embeddings):
-                unique_embeddings.append(emb)
-
-        # Append the unique embeddings to the existing embeddings
-        embeddings_to_save = existing_embeddings + unique_embeddings
-
-        # Calculate the new average embedding
-        if embeddings_to_save:
-            average_embedding = np.mean(embeddings_to_save, axis=0).tolist()
-        else:
-            average_embedding = existing_record.get("average_embedding", [])
-
-        await embedding_collection.update_one(
-            {"uuid": uuid},
-            {"$set": {"embeddings": [e.tolist() for e in embeddings_to_save], "average_embedding": average_embedding, "user_details": existing_user_details}},
-            upsert=True
-        )
+        update_data = await handle_existing_record(existing_record, new_embeddings, user_details)
     else:
-        # Calculate the average embedding for new embeddings
-        if new_embeddings:
-            average_embedding = np.mean(new_embeddings, axis=0).tolist()
-        else:
-            average_embedding = existing_record.get("average_embedding", [])
-        await embedding_collection.update_one(
-            {"uuid": uuid},
-            {"$set": {"embeddings": [e.tolist() for e in new_embeddings], "average_embedding": average_embedding, "user_details": user_details}},
-            upsert=True
-        )
+        update_data = handle_new_record(new_embeddings, user_details)
+
+    await embedding_collection.update_one(
+        {"uuid": uuid},
+        {"$set": update_data},
+        upsert=True
+    )
     logger.info("Reference embeddings and average embedding calculated successfully")
+
+
+async def handle_existing_record(existing_record: Dict, new_embeddings: List[np.ndarray], user_details: Dict) -> Dict:
+    existing_user_details = merge_user_details(existing_record, user_details)
+    existing_embeddings = convert_to_numpy(existing_record.get("embeddings", []))
+    unique_embeddings = filter_unique_embeddings(new_embeddings, existing_embeddings)
+    embeddings_to_save = existing_embeddings + unique_embeddings
+    average_embedding = calculate_average_embedding(embeddings_to_save, existing_record)
+
+    return {
+        "embeddings": [e.tolist() for e in embeddings_to_save],
+        "average_embedding": average_embedding,
+        "user_details": existing_user_details
+    }
+
+
+def handle_new_record(new_embeddings: List[np.ndarray], user_details: Dict) -> Dict:
+    average_embedding = calculate_average_embedding(new_embeddings)
+
+    return {
+        "embeddings": [e.tolist() for e in new_embeddings],
+        "average_embedding": average_embedding,
+        "user_details": user_details
+    }
+
+
+def merge_user_details(existing_record: Dict, new_user_details: Dict) -> Dict:
+    existing_user_details = existing_record.get("user_details", {})
+    existing_user_details.update(new_user_details)
+    return existing_user_details
+
+
+def convert_to_numpy(embeddings: List[Union[List, np.ndarray]]) -> List[np.ndarray]:
+    return [np.array(e) for e in embeddings]
+
+
+def filter_unique_embeddings(new_embeddings: List[np.ndarray], existing_embeddings: List[np.ndarray]) -> List[np.ndarray]:
+    return [emb for emb in new_embeddings if
+            not any(np.array_equal(emb, existing_emb) for existing_emb in existing_embeddings)]
+
+
+def calculate_average_embedding(embeddings: List[np.ndarray], existing_record: Dict = None) -> List:
+    if embeddings:
+        return np.mean(embeddings, axis=0).tolist()
+    elif existing_record:
+        return existing_record.get("average_embedding", [])
+    return []
 
 
 async def get_reference_embeddings(uuid: str):

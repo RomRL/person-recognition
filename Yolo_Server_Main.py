@@ -19,7 +19,6 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down...")
     logger.info("Application stopped.")
 
-
 app = FastAPI(
     lifespan=lifespan,
     title="YOLOv8 Detection and Face Comparison API",
