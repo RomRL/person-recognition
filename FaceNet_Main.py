@@ -50,7 +50,7 @@ async def set_logging_level(request: LogLevel):
 
 
 @app.post("/set_reference_image/", description="Set the reference images for face comparison.")
-async def set_reference_image(uuid: str, files: List[UploadFile] = File(...) , user_details: dict = {}):
+async def set_reference_image(uuid: str, files: List[UploadFile] = File(...)):
     try:
         # Process images from files
         file_embeddings = await embedding_manager.process_images(files, face_embedding)
@@ -63,7 +63,7 @@ async def set_reference_image(uuid: str, files: List[UploadFile] = File(...) , u
 
         # Save unique embeddings to embedding_collection
         if new_embeddings:
-            await embedding_manager.save_embeddings_to_db(uuid, new_embeddings, user_details)
+            await embedding_manager.save_embeddings_to_db(uuid, new_embeddings)
 
         return JSONResponse(status_code=200, content={
             "message": "Reference images set, embeddings, and average embedding calculated successfully",

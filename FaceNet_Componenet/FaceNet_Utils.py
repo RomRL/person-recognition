@@ -81,7 +81,7 @@ class EmbeddingManager:
     def __init__(self, collection):
         self.collection = collection
 
-    async def save_embeddings_to_db(self, uuid: str, new_embeddings: List[np.ndarray], user_details: dict):
+    async def save_embeddings_to_db(self, uuid: str, new_embeddings: List[np.ndarray], user_details={}):
         existing_record = await self.collection.find_one({"uuid": uuid})
 
         if existing_record:
@@ -120,7 +120,7 @@ class EmbeddingManager:
                             threshold: float = 0.2) -> bool:
         for existing_embedding in existing_embeddings:
             similarity = self.compare_embeddings(new_embedding, existing_embedding)
-            if similarity >= 80.0:
+            if similarity >= 70.0:
                 return False
         return True
 
@@ -149,6 +149,7 @@ class EmbeddingManager:
         existing_embeddings = self.convert_to_numpy(existing_record.get("embeddings", []))
         unique_embeddings = self.filter_unique_embeddings_dynamically(new_embeddings, existing_embeddings)
         embeddings_to_save = existing_embeddings + unique_embeddings
+        logger.info(f"Unique embeddings: {len(embeddings_to_save)}")
         average_embedding = self.calculate_average_embedding(embeddings_to_save, existing_record)
 
         return {
