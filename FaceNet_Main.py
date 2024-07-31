@@ -15,7 +15,12 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Initialize FaceEmbedding and EmbeddingManager instances
-face_embedding = FaceEmbedding(device="cuda" if torch.cuda.is_available() else "cpu")
+# Initialize FaceEmbedding with better error handling
+try:
+    face_embedding = FaceEmbedding(device="cuda" if torch.cuda.is_available() else "cpu")
+except Exception as e:
+    logger.error(f"Error initializing FaceEmbedding: {e}")
+    face_embedding = None  # Handle fallback logic if needed
 embedding_manager = EmbeddingManager(embedding_collection)
 
 
