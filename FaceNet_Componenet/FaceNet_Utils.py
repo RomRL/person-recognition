@@ -8,6 +8,8 @@ import io
 from fastapi import UploadFile
 from sklearn.metrics.pairwise import cosine_similarity
 
+from Utils.db import embedding_collection, check_mongo
+import torch
 from Utils.db import detected_frames_collection
 
 # Set up logging
@@ -215,3 +217,13 @@ class EmbeddingManager:
         else:
             logger.debug("Face not detected in the image")
             return 0
+
+
+# Initialize FaceEmbedding and EmbeddingManager instances
+try:
+    face_embedding = FaceEmbedding(device="cpu" if torch.cuda.is_available() else "cpu")
+except Exception as e:
+    logger.error(f"Error initializing FaceEmbedding: {e}")
+    face_embedding = None  # Handle fallback logic if needed
+
+embedding_manager = EmbeddingManager(embedding_collection)

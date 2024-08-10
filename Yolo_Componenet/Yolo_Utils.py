@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 import requests
 
+from FaceNet_Componenet.FaceNet_Utils import embedding_manager, face_embedding
 from Utils.db import detected_frames_collection, embedding_collection
 from Yolo_Componenet.YoloV8Detector import YoloV8Detector
 from config.config import FACENET_SERVER_URL, MONGODB_URL
@@ -79,54 +80,52 @@ async def annotate_frame(frame, frame_obj, similarity_threshold, detected_frames
     logger.info(f"Found in frame {frame_obj.frame_index}: {len(frame_obj.detections)} detections")
     for detection in frame_obj.detections:
         detected_image_base64 = detection.image_base_64
-        response = requests.post(face_comparison_server_url, params={"uuid": uuid},
-                                 json={"image_base_64": detected_image_base64})
-        if response.status_code == 200:
-            similarity = response.json().get("similarity_percentage")
-            if similarity is not None and similarity > similarity_threshold:
-                logger.info(f"Similarity score: {similarity:.2f}% for detection: {detection.frame_index}, Accepted")
-                x1, y1, x2, y2 = detection.coordinates
 
-                # Ensure coordinates are within frame boundaries
-                x1 = max(0, x1)
-                y1 = max(0, y1)
-                x2 = min(frame.shape[1], x2)
-                y2 = min(frame.shape[0], y2)
+        # Directly call the compare_faces function instead of making an HTTP request
+        similarity = await embedding_manager.calculate_similarity(
+            await embedding_manager.get_reference_embeddings(uuid),
+            detected_image_base64,
+            face_embedding
+        )
 
-                # Draw bounding box in red
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+        if similarity is not None and similarity > similarity_threshold:
+            logger.info(f"Similarity score: {similarity:.2f}% for detection: {detection.frame_index}, Accepted")
+            x1, y1, x2, y2 = detection.coordinates
 
-                # Position text above the bounding box and ensure it fits within the frame
-                text = f"{similarity:.2f}%"
-                font = cv2.FONT_HERSHEY_COMPLEX
-                font_scale = 0.8
-                font_thickness = 2
+            # Ensure coordinates are within frame boundaries
+            x1 = max(0, x1)
+            y1 = max(0, y1)
+            x2 = min(frame.shape[1], x2)
+            y2 = min(frame.shape[0], y2)
 
-                # Calculate text size and position
-                text_size = cv2.getTextSize(text, font, font_scale, font_thickness)[0]
-                text_x = x1
-                text_y = y1 - 10 if y1 - 10 > 10 else y1 + text_size[1] + 10
+            # Draw bounding box in red
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
 
-                # Draw background rectangle for text
-                cv2.rectangle(frame, (text_x, text_y - text_size[1] - 5),
-                              (text_x + text_size[0], text_y + 5), (0, 0, 255), cv2.FILLED)
+            # Position text above the bounding box and ensure it fits within the frame
+            text = f"{similarity:.2f}%"
+            font = cv2.FONT_HERSHEY_COMPLEX
+            font_scale = 0.8
+            font_thickness = 2
 
-                # Draw text in white
-                cv2.putText(frame, text, (text_x, text_y), font, font_scale, (255, 255, 255), font_thickness)
+            # Calculate text size and position
+            text_size = cv2.getTextSize(text, font, font_scale, font_thickness)[0]
+            text_x = x1
+            text_y = y1 - 10 if y1 - 10 > 10 else y1 + text_size[1] + 10
 
-                detection.similarity = similarity
-                detection.founded = True
-                detected_frames[f"frame_{frame_obj.frame_index}"] = {"cropped_image": detection.image_base_64,
-                                                                     "similarity": similarity}
-                break
-            else:
-                logger.debug(f"No similarity score or below threshold for detection: {detection.frame_index}")
+            # Draw background rectangle for text
+            cv2.rectangle(frame, (text_x, text_y - text_size[1] - 5),
+                          (text_x + text_size[0], text_y + 5), (0, 0, 255), cv2.FILLED)
+
+            # Draw text in white
+            cv2.putText(frame, text, (text_x, text_y), font, font_scale, (255, 255, 255), font_thickness)
+
+            detection.similarity = similarity
+            detection.founded = True
+            detected_frames[f"frame_{frame_obj.frame_index}"] = {"cropped_image": detection.image_base_64,
+                                                                 "similarity": similarity}
+            break
         else:
-            error_message = response.json().get("detail", "Unknown error")
-            logger.error(f"Error from face comparison server: {response.status_code} - {error_message}")
-            raise HTTPException(status_code=response.status_code,
-                                detail=f"Face comparison server error: {error_message}")
-
+            logger.debug(f"No similarity score or below threshold for detection: {detection.frame_index}")
 
 def create_streaming_response(file_path: str, filename: str):
     logger.info(f"Creating streaming response for file: {file_path}")
