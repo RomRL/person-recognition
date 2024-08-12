@@ -1,3 +1,4 @@
+import json
 import tempfile
 from contextlib import asynccontextmanager
 import uvicorn
@@ -110,8 +111,14 @@ async def purge_detected_frames():
 
 # Face Comparison Endpoints
 
+from fastapi import UploadFile, Form
+
 @app.post("/set_reference_image/", description="Set the reference images for face comparison.")
-async def set_reference_image(uuid: str, files: List[UploadFile] = File(...)):
+async def set_reference_image(
+    uuid: str,
+    files: List[UploadFile] = File(...),
+    user_json: str = Form(...)
+):
     try:
         # Process images from files
         file_embeddings = await embedding_manager.process_images(files, face_embedding)
@@ -122,9 +129,12 @@ async def set_reference_image(uuid: str, files: List[UploadFile] = File(...)):
         # Combine file embeddings and detected frame embeddings
         new_embeddings = file_embeddings + detected_embeddings
 
-        # Save unique embeddings to embedding_collection
+        # Parse the JSON string into a dictionary
+        user_details = json.loads(user_json)
+
+        # Save unique embeddings to embedding_collection along with user details
         if new_embeddings:
-            await embedding_manager.save_embeddings_to_db(uuid, new_embeddings)
+            await embedding_manager.save_embeddings_to_db(uuid, new_embeddings, user_details=user_details)
 
         return JSONResponse(status_code=200, content={
             "message": "Reference images set, embeddings, and average embedding calculated successfully",
@@ -133,6 +143,7 @@ async def set_reference_image(uuid: str, files: List[UploadFile] = File(...)):
     except Exception as e:
         logger.error(f"Error setting reference images: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
+
 
 
 @app.get("/health_facenet/", description="Health check endpoint to verify that the FaceNet application is running.")

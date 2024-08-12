@@ -33,11 +33,19 @@ async def insert_detected_frames_separately(uuid: str, running_id: str, detected
         await detected_frames_collection.insert_one(frame_document)
 
 
+import csv
+import time
+
+# Initialize a list to store frame processing details
+frame_data_list = []
+
+
 async def process_and_annotate_video(video_path: str, similarity_threshold: float, uuid: str, running_id: str) -> str:
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise HTTPException(status_code=500, detail="Error opening video file")
     print_to_log_video_parameters(cap)
+
     output_path = video_path + "_annotated.mp4"
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Using mp4v codec for MPEG-4
     out = cv2.VideoWriter(output_path, fourcc, cap.get(cv2.CAP_PROP_FPS),
@@ -49,15 +57,45 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
 
     frame_index = 0
     detected_frames: Dict[str, Any] = {}
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
 
         frame_index += 1
-        frame_obj = detector.predict(frame, frame_index=frame_index)
-        logger.info(f"Processing frame {frame_index}/{cap.get(cv2.CAP_PROP_FRAME_COUNT)}")
-        await annotate_frame(frame, frame_obj, similarity_threshold, detected_frames, uuid)
+
+        if frame_index % 2 == 0:
+            start_time = time.time()
+
+            # Detect faces
+            detection_start_time = time.time()
+            frame_obj = detector.predict(frame, frame_index=frame_index)
+            detection_time = time.time() - detection_start_time
+
+            # Calculate similarities
+            similarity_start_time = time.time()
+            await annotate_frame(frame, frame_obj, similarity_threshold, detected_frames, uuid)
+            similarity_time = time.time() - similarity_start_time
+
+            # Calculate total frame processing time
+            total_time = time.time() - start_time
+
+            # Collect frame processing data
+            frame_data_list.append({
+                "frame_number": frame_index,
+                "num_detections": len(frame_obj.detections),
+                "detection_time": detection_time,
+                "avg_similarity_time": similarity_time / len(frame_obj.detections) if frame_obj.detections else 0,
+                "total_time": total_time
+            })
+
+            logger.info(f"Processing frame {frame_index}/{total_frames}")
+        else:
+            logger.debug(f"Skipping frame {frame_index}")
+
+        # Write the frame to output video (processed or not)
         out.write(frame)
 
     cap.release()
@@ -65,6 +103,9 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
 
     # Save detected frames to MongoDB separately
     await insert_detected_frames_separately(uuid, running_id, detected_frames)
+
+    # Write collected data to CSV
+    save_frame_data_to_csv(frame_data_list, video_path)
 
     # Re-encode the annotated video
     reencoded_output_path = video_path + "_reencoded.mp4"
@@ -76,27 +117,85 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
     return reencoded_output_path
 
 
+def save_frame_data_to_csv(frame_data_list, video_path):
+    csv_file_path =  "frame_data.csv"
+    with open(csv_file_path, mode='w', newline='') as csv_file:
+        fieldnames = ["frame_number", "num_detections", "detection_time", "avg_similarity_time", "total_time"]
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+
+        writer.writeheader()
+        for frame_data in frame_data_list:
+            writer.writerow(frame_data)
+
+    logger.info(f"Frame data saved to {csv_file_path}")
+
+# async def process_and_annotate_video(video_path: str, similarity_threshold: float, uuid: str, running_id: str) -> str:
+#     cap = cv2.VideoCapture(video_path)
+#     if not cap.isOpened():
+#         raise HTTPException(status_code=500, detail="Error opening video file")
+#     print_to_log_video_parameters(cap)
+#     output_path = video_path + "_annotated.mp4"
+#     fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Using mp4v codec for MPEG-4
+#     out = cv2.VideoWriter(output_path, fourcc, cap.get(cv2.CAP_PROP_FPS),
+#                           (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))))
+#
+#     if not out.isOpened():
+#         cap.release()
+#         raise HTTPException(status_code=500, detail="Error initializing video writer")
+#
+#     frame_index = 0
+#     detected_frames: Dict[str, Any] = {}
+#     while cap.isOpened():
+#         ret, frame = cap.read()
+#         if not ret:
+#             break
+#
+#         frame_index += 1
+#         frame_obj = detector.predict(frame, frame_index=frame_index)
+#         logger.info(f"Processing frame {frame_index}/{cap.get(cv2.CAP_PROP_FRAME_COUNT)}")
+#         await annotate_frame(frame, frame_obj, similarity_threshold, detected_frames, uuid)
+#         out.write(frame)
+#
+#     cap.release()
+#     out.release()
+#
+#     # Save detected frames to MongoDB separately
+#     await insert_detected_frames_separately(uuid, running_id, detected_frames)
+#
+#     # Re-encode the annotated video
+#     reencoded_output_path = video_path + "_reencoded.mp4"
+#     reencode_video(output_path, reencoded_output_path)
+#
+#     if not os.path.exists(reencoded_output_path):
+#         raise HTTPException(status_code=500, detail="Re-encoded video file not found after processing")
+#
+#     return reencoded_output_path
+
+
+
+import asyncio
+
+
 async def annotate_frame(frame, frame_obj, similarity_threshold, detected_frames, uuid):
     logger.info(f"Found in frame {frame_obj.frame_index}: {len(frame_obj.detections)} detections")
-    for detection in frame_obj.detections:
-        detected_image_base64 = detection.image_base_64
 
-        # Directly call the compare_faces function instead of making an HTTP request
-        similarity = await embedding_manager.calculate_similarity(
-            await embedding_manager.get_reference_embeddings(uuid),
-            detected_image_base64,
-            face_embedding
-        )
+    # Create a list of coroutines for all detections
+    similarity_coroutines = [
+        calculate_similarity(uuid, detection.image_base_64)
+        for detection in frame_obj.detections
+    ]
 
+    # Run all coroutines concurrently
+    similarities = await asyncio.gather(*similarity_coroutines)
+
+    for detection, similarity in zip(frame_obj.detections, similarities):
         if similarity is not None and similarity > similarity_threshold:
             logger.info(f"Similarity score: {similarity:.2f}% for detection: {detection.frame_index}, Accepted")
             x1, y1, x2, y2 = detection.coordinates
 
             # Ensure coordinates are within frame boundaries
-            x1 = max(0, x1)
-            y1 = max(0, y1)
-            x2 = min(frame.shape[1], x2)
-            y2 = min(frame.shape[0], y2)
+            x1, y1 = max(0, x1), max(0, y1)
+            x2, y2 = min(frame.shape[1], x2), min(frame.shape[0], y2)
 
             # Draw bounding box in red
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
@@ -126,6 +225,17 @@ async def annotate_frame(frame, frame_obj, similarity_threshold, detected_frames
             break
         else:
             logger.debug(f"No similarity score or below threshold for detection: {detection.frame_index}")
+
+
+async def calculate_similarity(uuid, detected_image_base64):
+    reference_embeddings = await embedding_manager.get_reference_embeddings(uuid)
+    similarity = await embedding_manager.calculate_similarity(
+        reference_embeddings,
+        detected_image_base64,
+        face_embedding
+    )
+    return similarity
+
 
 def create_streaming_response(file_path: str, filename: str):
     logger.info(f"Creating streaming response for file: {file_path}")
