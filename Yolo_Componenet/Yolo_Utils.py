@@ -6,7 +6,7 @@ import cv2
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 import requests
-
+from multiprocessing.pool import Pool
 from FaceNet_Componenet.FaceNet_Utils import embedding_manager, face_embedding
 from Utils.db import detected_frames_collection, embedding_collection
 from Yolo_Componenet.YoloV8Detector import YoloV8Detector
@@ -66,34 +66,31 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
 
         frame_index += 1
 
-        if frame_index % 2 == 0:
-            start_time = time.time()
+        start_time = time.time()
 
-            # Detect faces
-            detection_start_time = time.time()
-            frame_obj = detector.predict(frame, frame_index=frame_index)
-            detection_time = time.time() - detection_start_time
+        # Detect faces
+        detection_start_time = time.time()
+        frame_obj = detector.predict(frame, frame_index=frame_index)
+        detection_time = time.time() - detection_start_time
 
-            # Calculate similarities
-            similarity_start_time = time.time()
-            await annotate_frame(frame, frame_obj, similarity_threshold, detected_frames, uuid)
-            similarity_time = time.time() - similarity_start_time
+        # Calculate similarities
+        similarity_start_time = time.time()
+        await annotate_frame(frame, frame_obj, similarity_threshold, detected_frames, uuid)
+        similarity_time = time.time() - similarity_start_time
 
-            # Calculate total frame processing time
-            total_time = time.time() - start_time
+        # Calculate total frame processing time
+        total_time = time.time() - start_time
 
-            # Collect frame processing data
-            frame_data_list.append({
-                "frame_number": frame_index,
-                "num_detections": len(frame_obj.detections),
-                "detection_time": detection_time,
-                "avg_similarity_time": similarity_time / len(frame_obj.detections) if frame_obj.detections else 0,
-                "total_time": total_time
-            })
+        # Collect frame processing data
+        frame_data_list.append({
+            "frame_number": frame_index,
+            "num_detections": len(frame_obj.detections),
+            "detection_time": detection_time,
+            "avg_similarity_time": similarity_time / len(frame_obj.detections) if frame_obj.detections else 0,
+            "total_time": total_time
+        })
 
-            logger.info(f"Processing frame {frame_index}/{total_frames}")
-        else:
-            logger.debug(f"Skipping frame {frame_index}")
+        logger.info(f"Processing frame {frame_index}/{total_frames}")
 
         # Write the frame to output video (processed or not)
         out.write(frame)
@@ -171,31 +168,33 @@ def save_frame_data_to_csv(frame_data_list, video_path):
 #
 #     return reencoded_output_path
 
-
-
-import asyncio
+def wrapper(data):
+    return embedding_manager.calculate_similarity(
+        data[0],
+        data[1],
+        data[2]
+    )
 
 
 async def annotate_frame(frame, frame_obj, similarity_threshold, detected_frames, uuid):
     logger.info(f"Found in frame {frame_obj.frame_index}: {len(frame_obj.detections)} detections")
-
-    # Create a list of coroutines for all detections
-    similarity_coroutines = [
-        calculate_similarity(uuid, detection.image_base_64)
-        for detection in frame_obj.detections
-    ]
-
-    # Run all coroutines concurrently
-    similarities = await asyncio.gather(*similarity_coroutines)
+    refrence_embeddings = await embedding_manager.get_reference_embeddings(uuid)
+    datas = [(refrence_embeddings, detection.image_base_64, face_embedding) for detection in frame_obj.detections]
+    #pool = Pool(processes=10)
+    #similarities = pool.map(wrapper, datas)
+    similarities = [wrapper(data) for data in datas]
 
     for detection, similarity in zip(frame_obj.detections, similarities):
+
         if similarity is not None and similarity > similarity_threshold:
             logger.info(f"Similarity score: {similarity:.2f}% for detection: {detection.frame_index}, Accepted")
             x1, y1, x2, y2 = detection.coordinates
 
             # Ensure coordinates are within frame boundaries
-            x1, y1 = max(0, x1), max(0, y1)
-            x2, y2 = min(frame.shape[1], x2), min(frame.shape[0], y2)
+            x1 = max(0, x1)
+            y1 = max(0, y1)
+            x2 = min(frame.shape[1], x2)
+            y2 = min(frame.shape[0], y2)
 
             # Draw bounding box in red
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)

@@ -13,6 +13,7 @@ from Yolo_Componenet.Yolo_Utils import process_and_annotate_video, create_stream
 from FaceNet_Componenet.FaceNet_Utils import embedding_manager, face_embedding
 from config.config import YOLO_SERVER_PORT, SIMILARITY_THRESHOLD
 from Utils.db import check_mongo, delete_many_detected_frames_collection
+from fastapi.middleware.cors import CORSMiddleware
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -36,6 +37,13 @@ app = FastAPI(
     description="This API allows you to process video files to detect objects using YOLOv8 and compare detected faces with a reference image using FaceNet."
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # YOLOv8 Endpoints
 
