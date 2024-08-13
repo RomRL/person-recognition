@@ -179,7 +179,7 @@ def wrapper(data):
 
 
 async def annotate_frame(frame, frame_obj, similarity_threshold, detected_frames, uuid):
-    #from process_pool import process_pool
+    from process_pool import process_pool
     logger.info(f"Found in frame {frame_obj.frame_index}: {len(frame_obj.detections)} detections")
     refrence_embeddings = await embedding_manager.get_reference_embeddings(uuid)
     datas = [(refrence_embeddings, detection.image_base_64, face_embedding) for detection in frame_obj.detections]
