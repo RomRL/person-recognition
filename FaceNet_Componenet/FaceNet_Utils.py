@@ -219,6 +219,12 @@ class EmbeddingManager:
             return 0
 
 
+def initialize_model(device):
+    global mtcnn, model
+    mtcnn = MTCNN(device=device)
+    model = InceptionResnetV1(pretrained='vggface2').eval().to(device)
+    print("Model and MTCNN initialized in process.")
+
 # Initialize FaceEmbedding and EmbeddingManager instances
 try:
     face_embedding = FaceEmbedding(device="cpu" if torch.cuda.is_available() else "cpu")

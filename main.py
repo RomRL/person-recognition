@@ -7,24 +7,34 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List
 import logging
+import multiprocessing
 from Utils.Log_level import LogLevel, set_log_level
 from Yolo_Componenet.Yolo_Utils import process_and_annotate_video, create_streaming_response, logger as yolo_logger, \
     fetch_detected_frames
-from FaceNet_Componenet.FaceNet_Utils import embedding_manager, face_embedding
+from FaceNet_Componenet.FaceNet_Utils import embedding_manager, face_embedding, initialize_model
 from config.config import YOLO_SERVER_PORT, SIMILARITY_THRESHOLD
 from Utils.db import check_mongo, delete_many_detected_frames_collection
 from fastapi.middleware.cors import CORSMiddleware
+import torch
+from process_pool import initialize_pool
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+process_pool = None
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting up...")
     yolo_logger.info("Starting up...")
+    initialize_pool(num_processes=10)
+
     yield
+    from process_pool import process_pool
+    process_pool.close()
+    process_pool.join()
     logger.info("Shutting down...")
     yolo_logger.info("Shutting down...")
     logger.info("Application stopped.")
@@ -44,6 +54,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
 
 # YOLOv8 Endpoints
 

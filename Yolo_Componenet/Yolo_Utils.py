@@ -6,7 +6,6 @@ import cv2
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 import requests
-from multiprocessing.pool import Pool
 from FaceNet_Componenet.FaceNet_Utils import embedding_manager, face_embedding
 from Utils.db import detected_frames_collection, embedding_collection
 from Yolo_Componenet.YoloV8Detector import YoloV8Detector
@@ -59,6 +58,7 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
     detected_frames: Dict[str, Any] = {}
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
+    start_total = time.time()
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
@@ -95,8 +95,10 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
         # Write the frame to output video (processed or not)
         out.write(frame)
 
+    logger.info(f"Time annotation: {time.time() - start_total}")
     cap.release()
     out.release()
+
 
     # Save detected frames to MongoDB separately
     await insert_detected_frames_separately(uuid, running_id, detected_frames)
@@ -177,12 +179,12 @@ def wrapper(data):
 
 
 async def annotate_frame(frame, frame_obj, similarity_threshold, detected_frames, uuid):
+    #from process_pool import process_pool
     logger.info(f"Found in frame {frame_obj.frame_index}: {len(frame_obj.detections)} detections")
     refrence_embeddings = await embedding_manager.get_reference_embeddings(uuid)
     datas = [(refrence_embeddings, detection.image_base_64, face_embedding) for detection in frame_obj.detections]
-    #pool = Pool(processes=10)
-    #similarities = pool.map(wrapper, datas)
-    similarities = [wrapper(data) for data in datas]
+    similarities = process_pool.map(wrapper, datas)
+    #similarities = [wrapper(data) for data in datas]
 
     for detection, similarity in zip(frame_obj.detections, similarities):
 
