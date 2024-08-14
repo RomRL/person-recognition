@@ -1,4 +1,5 @@
 import logging
+import multiprocessing
 import os
 from typing import Dict, Any
 import ffmpeg
@@ -86,7 +87,7 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
     # Start a few annotation worker threads
-    num_annotation_threads = 4
+    num_annotation_threads = multiprocessing.cpu_count()
     threads = []
     for i in range(num_annotation_threads):
         t = threading.Thread(target=annotate_frame_worker, args=(similarity_threshold, detected_frames, uuid, refrence_embeddings))
