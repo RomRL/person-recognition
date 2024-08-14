@@ -1,6 +1,7 @@
 import multiprocessing
 from facenet_pytorch import MTCNN, InceptionResnetV1
 import torch
+from FaceNet_Componenet.FaceNet_Utils import face_embedding
 
 # Initialize device
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -9,7 +10,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 process_pool = None
 
 def initialize_model(device):
-    global mtcnn, model
+    global mtcnn, model, face_embedding 
     mtcnn = MTCNN(device=device)
     model = InceptionResnetV1(pretrained='vggface2').eval().to(device)
     print("Model and MTCNN initialized in process.")

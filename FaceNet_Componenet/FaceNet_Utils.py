@@ -208,7 +208,7 @@ class EmbeddingManager:
     async def get_reference_embeddings(self, uuid: str):
         return await self.collection.find_one({"uuid": uuid})
 
-    def calculate_similarity(self, record, detected_image_base64: str, face_embedding: FaceEmbedding) -> float:
+    def calculate_similarity(self, record, detected_image_base64: str) -> float:
         embeddings = [np.array(e) for e in record["embeddings"]]
         detected_image = face_embedding.preprocess_image(detected_image_base64)
         detected_embedding = face_embedding.get_embedding(detected_image)

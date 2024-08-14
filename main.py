@@ -29,7 +29,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 async def lifespan(app: FastAPI):
     logger.info("Starting up...")
     yolo_logger.info("Starting up...")
-    initialize_pool(num_processes=10)
+    #initialize_pool(num_processes=1)
 
     yield
     from process_pool import process_pool
