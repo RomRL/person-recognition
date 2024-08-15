@@ -39,7 +39,8 @@ import time
 frame_data_list = []
 
 # List to store processed frames and their indices
-annotated_frames = []
+annotated_frames = {}
+detections_frames = {}
 
 import threading
 import queue
@@ -48,7 +49,9 @@ import time
 # Initialize a queue for frames to be annotated
 frame_queue = queue.Queue()
 
+
 def annotate_frame_worker(similarity_threshold, detected_frames, uuid, refrence_embeddings):
+    global annotated_frames
     while True:
         item = frame_queue.get()
         if item is None:
@@ -58,15 +61,17 @@ def annotate_frame_worker(similarity_threshold, detected_frames, uuid, refrence_
 
         # Annotate the frame
         logger.info(f"Annotating frame {frame_obj.frame_index}")
-        annotate_frame(frame, frame_obj, similarity_threshold, detected_frames, uuid, refrence_embeddings)
+        annotate_frame(frame, frame_obj, similarity_threshold, detected_frames, uuid, refrence_embeddings, frame_index)
 
-        # Store the annotated frame in the list
-        annotated_frames.append((frame_index, frame))
+        # Safely store the annotated frame in the shared dictionary
+        annotated_frames[frame_index] = frame
+
         # Mark the task as done
         frame_queue.task_done()
 
-
 async def process_and_annotate_video(video_path: str, similarity_threshold: float, uuid: str, running_id: str) -> str:
+    global annotated_frames  # Make sure the global dictionary is accessible
+    annotated_frames = {}
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise HTTPException(status_code=500, detail="Error opening video file")
@@ -101,29 +106,33 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
             break
 
         frame_index += 1
-        start_time = time.time()
 
-        # Detect faces
-        detection_start_time = time.time()
-        frame_obj = detector.predict(frame, frame_index=frame_index)
-        detection_time = time.time() - detection_start_time
+        # Queue even frames for annotation processing
+        if frame_index % 2 == 0:
+            start_time = time.time()
+            # Detect faces
+            detection_start_time = time.time()
+            frame_obj = detector.predict(frame, frame_index=frame_index)
+            detection_time = time.time() - detection_start_time
 
-        # Queue the frame for annotation
-        frame_queue.put((frame, frame_obj, frame_index))
+            # Queue the frame for annotation
+            frame_queue.put((frame, frame_obj, frame_index))
 
-        # Calculate total frame processing time
-        total_time = time.time() - start_time
+            # Calculate total frame processing time
+            total_time = time.time() - start_time
 
-        # Collect frame processing data
-        frame_data_list.append({
-            "frame_number": frame_index,
-            "num_detections": len(frame_obj.detections),
-            "detection_time": detection_time,
-            "total_time": total_time
-        })
+            # Collect frame processing data
+            frame_data_list.append({
+                "frame_number": frame_index,
+                "num_detections": len(frame_obj.detections),
+                "detection_time": detection_time,
+                "total_time": total_time
+            })
 
-        logger.info(f"Processing frame {frame_index}/{total_frames}")
-
+            logger.info(f"Processing frame {frame_index}/{total_frames}")
+        else:
+            # Directly add odd frames to the annotated_frames dictionary
+            annotated_frames[frame_index] = frame
 
     # Wait for all frames to be processed
     frame_queue.join()
@@ -134,11 +143,13 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
     for t in threads:
         t.join()
 
-    # Sort frames by their index to ensure correct order
-    annotated_frames.sort(key=lambda x: x[0])
-     # Write the frames to output video
-    for _, frame in annotated_frames:
-        out.write(frame)
+    # Write the frames to output video
+    for index in range(total_frames):
+        frame = annotated_frames.get(index)
+        if frame is not None:
+            if index % 2 == 1:
+                check_and_annotate(index, frame)
+            out.write(frame)
 
     logger.info(f"Time annotation: {time.time() - start_total}")
     cap.release()
@@ -159,6 +170,45 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
 
     return reencoded_output_path
 
+def check_and_annotate(frame_index, frame):
+    diff_margin = 100
+    # check the before and after frame detections and if their cordinates are similar add fiction annotation
+    if frame_index - 1 in detections_frames and frame_index + 1 in detections_frames:
+        # get the cordinates of the detections
+        detection1 = detections_frames[frame_index - 1]
+        detection2 = detections_frames[frame_index + 1]
+        # check if the cordinates are similar by a margin of error
+        if abs(detection1[0][0] - detection2[0][0]) < diff_margin and abs(detection1[0][1] - detection2[0][1]) < diff_margin:
+            # add the cordinates to the frame
+            x1, y1, x2, y2 = detection1[0]
+            # Ensure coordinates are within frame boundaries
+            x1 = max(0, x1)
+            y1 = max(0, y1)
+            x2 = min(frame.shape[1], x2)
+            y2 = min(frame.shape[0], y2)
+
+            # Draw bounding box in red
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+
+            # Position text above the bounding box and ensure it fits within the frame
+            text = f"{detection1[1]:.2f}%"
+            font = cv2.FONT_HERSHEY_COMPLEX
+            font_scale = 0.8
+            font_thickness = 2
+
+            # Calculate text size and position
+            text_size = cv2.getTextSize(text, font, font_scale, font_thickness)[0]
+            text_x = x1
+            text_y = y1 - 10 if y1 - 10 > 10 else y1 + text_size[1] + 10
+
+            # Draw background rectangle for text
+            cv2.rectangle(frame, (text_x, text_y - text_size[1] - 5),
+                          (text_x + text_size[0], text_y + 5), (0, 0, 255), cv2.FILLED)
+
+            # Draw text in white
+            cv2.putText(frame, text, (text_x, text_y), font, font_scale, (255, 255, 255), font_thickness)
+            return True
+
 def save_frame_data_to_csv(frame_data_list, video_path):
     csv_file_path =  "frame_data.csv"
     with open(csv_file_path, mode='w', newline='') as csv_file:
@@ -178,7 +228,7 @@ def wrapper(data):
     )
 
 
-def annotate_frame(frame, frame_obj, similarity_threshold, detected_frames, uuid, refrence_embeddings):
+def annotate_frame(frame, frame_obj, similarity_threshold, detected_frames, uuid, refrence_embeddings, frame_index):
     #from process_pool import process_pool
     logger.info(f"Found in frame {frame_obj.frame_index}: {len(frame_obj.detections)} detections")
     datas = [(refrence_embeddings, detection.image_base_64) for detection in frame_obj.detections]
@@ -190,6 +240,8 @@ def annotate_frame(frame, frame_obj, similarity_threshold, detected_frames, uuid
         if similarity is not None and similarity > similarity_threshold:
             logger.info(f"Similarity score: {similarity:.2f}% for detection: {detection.frame_index}, Accepted")
             x1, y1, x2, y2 = detection.coordinates
+            detections_frames[frame_index] = (detection.coordinates, similarity)
+            
 
             # Ensure coordinates are within frame boundaries
             x1 = max(0, x1)
