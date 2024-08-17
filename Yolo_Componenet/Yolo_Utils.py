@@ -6,12 +6,15 @@ import ffmpeg
 import cv2
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
-import requests
 from FaceNet_Componenet.FaceNet_Utils import embedding_manager, face_embedding
 from Utils.db import detected_frames_collection, embedding_collection
 from Yolo_Componenet.YoloV8Detector import YoloV8Detector
 from config.config import FACENET_SERVER_URL, MONGODB_URL
 from motor.motor_asyncio import AsyncIOMotorClient
+import csv
+import threading
+import queue
+import time
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -21,7 +24,8 @@ face_comparison_server_url = FACENET_SERVER_URL + "/compare/"
 client = AsyncIOMotorClient(MONGODB_URL)
 
 
-async def insert_detected_frames_separately(uuid: str, running_id: str, detected_frames: Dict[str, Any]):
+async def insert_detected_frames_separately(uuid: str, running_id: str, detected_frames: Dict[str, Any],
+                                            frame_per_second: int = 30):
     for frame_index, frame_data in detected_frames.items():
         frame_document = {
             "uuid": uuid,
@@ -29,12 +33,10 @@ async def insert_detected_frames_separately(uuid: str, running_id: str, detected
             "frame_index": frame_index,
             "frame_data": frame_data,
             "embedded": False,
+            "frame_per_second": frame_per_second
         }
         await detected_frames_collection.insert_one(frame_document)
 
-
-import csv
-import time
 
 # Initialize a list to store frame processing details
 frame_data_list = []
@@ -43,10 +45,6 @@ frame_data_list = []
 annotated_frames = {}
 detections_frames = {}
 
-import threading
-import queue
-import time
-
 # Initialize a queue for frames to be annotated
 frame_queue = queue.Queue()
 
@@ -54,26 +52,35 @@ frame_queue = queue.Queue()
 def annotate_frame_worker(similarity_threshold, detected_frames, uuid, refrence_embeddings):
     global annotated_frames
     while True:
-        item = frame_queue.get()
-        if item is None:
-            break
+        try:
+            item = frame_queue.get()
+            if item is None:
+                break
 
-        frame, frame_obj, frame_index = item
+            frame, frame_obj, frame_index = item
 
-        # Annotate the frame
-        logger.info(f"Annotating frame {frame_obj.frame_index}")
-        annotate_frame(frame, frame_obj, similarity_threshold, detected_frames, uuid, refrence_embeddings, frame_index)
+            # Annotate the frame
+            logger.info(f"Annotating frame {frame_obj.frame_index}")
+            annotate_frame(frame, frame_obj, similarity_threshold, detected_frames, uuid, refrence_embeddings,
+                           frame_index)
 
-        # Safely store the annotated frame in the shared dictionary
-        annotated_frames[frame_index] = frame
+            # Safely store the annotated frame in the shared dictionary
+            annotated_frames[frame_index] = frame
 
-        # Mark the task as done
-        frame_queue.task_done()
+        except Exception as e:
+            logger.error(f"Error in annotate_frame_worker: {e}")
+            frame_queue.task_done()  # Ensure the queue task is marked as done even if there's an error
+
+        finally:
+            logger.info(f"Finished processing frame {frame_index}, marking as done")
+            frame_queue.task_done()
+
 
 async def process_and_annotate_video(video_path: str, similarity_threshold: float, uuid: str, running_id: str) -> str:
     global annotated_frames  # Make sure the global dictionary is accessible
     annotated_frames = {}
     cap = cv2.VideoCapture(video_path)
+    frame_per_second = int(cap.get(cv2.CAP_PROP_FPS))
     if not cap.isOpened():
         raise HTTPException(status_code=500, detail="Error opening video file")
     print_to_log_video_parameters(cap)
@@ -95,7 +102,8 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
     num_annotation_threads = multiprocessing.cpu_count()
     threads = []
     for i in range(num_annotation_threads):
-        t = threading.Thread(target=annotate_frame_worker, args=(similarity_threshold, detected_frames, uuid, refrence_embeddings))
+        t = threading.Thread(target=annotate_frame_worker,
+                             args=(similarity_threshold, detected_frames, uuid, refrence_embeddings))
         t.start()
         threads.append(t)
 
@@ -137,6 +145,7 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
 
     # Wait for all frames to be processed
     frame_queue.join()
+    logger.info("All frames processed")
 
     # Stop the worker threads
     for _ in range(num_annotation_threads):
@@ -155,9 +164,10 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
     logger.info(f"Time annotation: {time.time() - start_total}")
     cap.release()
     out.release()
-
+    logger.info("Video processing complete!")
     # Save detected frames to MongoDB separately
-    await insert_detected_frames_separately(uuid, running_id, detected_frames)
+    await insert_detected_frames_separately(uuid=uuid, running_id=running_id, detected_frames=detected_frames,
+                                            frame_per_second=frame_per_second)
 
     # Write collected data to CSV
     save_frame_data_to_csv(frame_data_list, video_path)
@@ -171,6 +181,7 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
 
     return reencoded_output_path
 
+
 def check_and_annotate(frame_index, frame):
     diff_margin = 100
     # check the before and after frame detections and if their cordinates are similar add fiction annotation
@@ -179,7 +190,8 @@ def check_and_annotate(frame_index, frame):
         detection1 = detections_frames[frame_index - 1]
         detection2 = detections_frames[frame_index + 1]
         # check if the cordinates are similar by a margin of error
-        if abs(detection1[0][0] - detection2[0][0]) < diff_margin and abs(detection1[0][1] - detection2[0][1]) < diff_margin:
+        if abs(detection1[0][0] - detection2[0][0]) < diff_margin and abs(
+                detection1[0][1] - detection2[0][1]) < diff_margin:
             # add the cordinates to the frame
             x1, y1, x2, y2 = detection1[0]
             # Ensure coordinates are within frame boundaries
@@ -210,8 +222,9 @@ def check_and_annotate(frame_index, frame):
             cv2.putText(frame, text, (text_x, text_y), font, font_scale, (255, 255, 255), font_thickness)
             return True
 
+
 def save_frame_data_to_csv(frame_data_list, video_path):
-    csv_file_path =  "frame_data.csv"
+    csv_file_path = "frame_data.csv"
     with open(csv_file_path, mode='w', newline='') as csv_file:
         fieldnames = ["frame_number", "num_detections", "detection_time", "avg_similarity_time", "total_time"]
         writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
@@ -221,6 +234,7 @@ def save_frame_data_to_csv(frame_data_list, video_path):
             writer.writerow(frame_data)
 
     logger.info(f"Frame data saved to {csv_file_path}")
+
 
 def wrapper(data):
     return embedding_manager.calculate_similarity(
@@ -242,7 +256,6 @@ def annotate_frame(frame, frame_obj, similarity_threshold, detected_frames, uuid
             logger.info(f"Similarity score: {similarity:.2f}% for detection: {detection.frame_index}, Accepted")
             x1, y1, x2, y2 = detection.coordinates
             detections_frames[frame_index] = (detection.coordinates, similarity)
-            
 
             # Ensure coordinates are within frame boundaries
             x1 = max(0, x1)
@@ -311,15 +324,19 @@ async def iter_file(file_path: str):
 
 async def fetch_detected_frames(uuid: str, running_id: str):
     cursor = detected_frames_collection.find({"uuid": uuid, "running_id": running_id})
+    frame_per_second = 30
     detected_frames = {}
     async for document in cursor:
         frame_index = document["frame_index"]
         frame_data = document["frame_data"]
-        detected_frames[frame_index] = frame_data
 
+        detected_frames[frame_index] = frame_data
+    if detected_frames:
+        frame_per_second = document["frame_per_second"]
     extra_details = await embedding_collection.find_one({"uuid": uuid})
     if extra_details:
         detected_frames["user_details"] = extra_details["user_details"]
+        detected_frames["frame_per_second"] = frame_per_second
 
     return detected_frames
 
