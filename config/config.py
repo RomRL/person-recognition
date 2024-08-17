@@ -1,3 +1,4 @@
+import multiprocessing
 import os
 from os.path import join
 ROOT_PATH = os.path.dirname(os.path.abspath(__file__))
@@ -8,7 +9,6 @@ YOLO_SERVER_PORT = os.getenv("YOLO_SERVER_PORT", 8000)
 OLO_SERVER_URL = os.getenv("YOLO_SERVER_URL", f"http://localhost:{YOLO_SERVER_PORT}")
 YOLO_FOLDER = os.getenv("YOLO_FOLDER",join(ROOT_PATH, "Yolo_Componenet"))
 SIMILARITY_THRESHOLD = os.getenv("SIMILARITY_THRESHOLD", 30.0)
-MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017/")
-
+MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://root:example@localhost:27017/?authMechanism=DEFAULT")
 
 

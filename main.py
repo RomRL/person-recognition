@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 process_pool = None
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting up...")
@@ -54,7 +55,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 
 # YOLOv8 Endpoints
@@ -133,11 +133,12 @@ async def purge_detected_frames():
 
 from fastapi import UploadFile, Form
 
+
 @app.post("/set_reference_image/", description="Set the reference images for face comparison.")
 async def set_reference_image(
-    uuid: str,
-    files: List[UploadFile] = File(...),
-    user_json: str = Form(...)
+        uuid: str,
+        files: List[UploadFile] = File(...),
+        user_json: str = Form(...)
 ):
     try:
         # Process images from files
@@ -163,7 +164,6 @@ async def set_reference_image(
     except Exception as e:
         logger.error(f"Error setting reference images: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
-
 
 
 @app.get("/health_facenet/", description="Health check endpoint to verify that the FaceNet application is running.")

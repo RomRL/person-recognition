@@ -227,7 +227,7 @@ def initialize_model(device):
 
 # Initialize FaceEmbedding and EmbeddingManager instances
 try:
-    face_embedding = FaceEmbedding(device="cpu" if torch.cuda.is_available() else "cpu")
+    face_embedding = FaceEmbedding(device="cuda" if torch.cuda.is_available() else "cpu")
 except Exception as e:
     logger.error(f"Error initializing FaceEmbedding: {e}")
     face_embedding = None  # Handle fallback logic if needed
