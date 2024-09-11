@@ -85,7 +85,7 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
         raise HTTPException(status_code=500, detail="Error opening video file")
     print_to_log_video_parameters(cap)
     refrence_embeddings = await embedding_manager.get_reference_embeddings(uuid)
-    output_path = video_path + "_annotated.mp4"
+    output_path = video_path.replace(".mp4", "_annotated.mp4")
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Using mp4v codec for MPEG-4
     out = cv2.VideoWriter(output_path, fourcc, cap.get(cv2.CAP_PROP_FPS),
                           (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))))
@@ -164,7 +164,7 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
     logger.info(f"Time annotation: {time.time() - start_total}")
     cap.release()
     out.release()
-    logger.info("Video processing complete!")
+    logger.info(f"Video processing complete , output file saved at {output_path}")
     # Save detected frames to MongoDB separately
     await insert_detected_frames_separately(uuid=uuid, running_id=running_id, detected_frames=detected_frames,
                                             frame_per_second=frame_per_second)
@@ -173,7 +173,8 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
     save_frame_data_to_csv(frame_data_list, video_path)
 
     # Re-encode the annotated video
-    reencoded_output_path = video_path + "_reencoded.mp4"
+    reencoded_output_path = video_path.replace(".mp4", "_annotated_reencoded.mp4")
+
     reencode_video(output_path, reencoded_output_path)
 
     if not os.path.exists(reencoded_output_path):
@@ -343,12 +344,39 @@ async def fetch_detected_frames(uuid: str, running_id: str):
 
 def reencode_video(input_path, output_path):
     try:
+        logger.info(f"Checking if {input_path} exists...")
+        if os.path.exists(input_path):
+            logger.info(f"{input_path} exists.")
+        else:
+            logger.error(f"{input_path} does NOT exist.")
+
+        logger.info(f"Checking if {output_path} is accessible...")
+        if os.access(output_path, os.R_OK):
+            logger.info(f"{output_path} is readable.")
+        else:
+            logger.error(f"{output_path} is NOT readable.")
+
+        # Ensure the input file exists
+        if not os.path.exists(input_path):
+            logger.error(f"Input file does not exist: {input_path}")
+            return
+
+        logger.info(f"Input file confirmed: {input_path}")
         logger.info("Re-encoding video...")
-        ffmpeg.input(input_path).output(output_path, vcodec='libx264', acodec='aac', strict='-2').global_args(
-            '-loglevel', 'quiet', '-hide_banner').run()
+
+        # Run ffmpeg command
+        process = (
+            ffmpeg
+            .input(input_path)
+            .output(output_path, vcodec='libx264', acodec='aac', strict='-2')
+            .run(capture_stdout=True, capture_stderr=True)
+        )
         logger.info("Video re-encoded successfully!")
-    except ffmpeg.Error as e:
-        logger.error(f"Error occurred during re-encoding: {e.stderr}")
+
+    except Exception as e:
+        logger.error(f"ffmpeg error: {e.stderr.decode('utf-8')}")
+        logger.error(f"Error occurred during re-encoding: {e}")
+        logger.error(f"An unexpected error occurred during re-encoding: {e}")
 
 
 def print_to_log_video_parameters(cap):

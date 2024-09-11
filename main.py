@@ -73,7 +73,6 @@ async def set_logging_level(request: LogLevel):
         logger.error(f"Error setting logging level: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
-
 @app.post("/detect_and_annotate/", response_description="Annotated video file")
 async def detect_and_annotate_video(uuid: str, running_id: str, file: UploadFile = File(...),
                                     similarity_threshold: float = 20.0):
@@ -90,45 +89,6 @@ async def detect_and_annotate_video(uuid: str, running_id: str, file: UploadFile
     except Exception as e:
         yolo_logger.error(f"Error in detect_and_annotate_video endpoint:\n {e}")
         return JSONResponse(content={"error": str(e)}, status_code=500)
-
-
-@app.get("/get_detected_frames/", description="Get the detected frames from the last processed video.")
-async def get_detected_frames(uuid: str, running_id: str):
-    try:
-        detected_frames = await fetch_detected_frames(uuid, running_id)
-        if detected_frames and detected_frames:
-            return JSONResponse(content={"detected_frames": detected_frames, "status": "success"}, status_code=200)
-        return JSONResponse(content={"status": "error", "message": "No detected frames found for the given UUID."},
-                            status_code=404)
-    except Exception as e:
-        yolo_logger.error(f"Error in get_detected_frames endpoint: {e}")
-        return JSONResponse(content={"error": str(e)}, status_code=500)
-
-
-@app.get("/health_yolo/", description="Health check endpoint to verify that the YOLO application is running.")
-async def health_check_yolo():
-    try:
-        if await check_mongo():
-            yolo_logger.info("Health check successful.")
-            return JSONResponse(content={"status": "healthy"}, status_code=200)
-        else:
-            yolo_logger.warning("MongoDB is not ready.")
-            return JSONResponse(content={"status": "unhealthy", "error": "MongoDB is not ready."}, status_code=503)
-    except Exception as e:
-        yolo_logger.error(f"Health check failed: {e}")
-        return JSONResponse(content={"status": "unhealthy", "error": str(e)}, status_code=500)
-
-
-@app.delete("/purge_detected_frames/", description="Purge the detected frames collection.")
-async def purge_detected_frames():
-    try:
-        delete_many_detected_frames_collection()
-        return JSONResponse(content={"message": "Detected frames collection purged successfully."}, status_code=200)
-    except Exception as e:
-        yolo_logger.error(f"Error purging detected frames collection: {e}")
-        return JSONResponse(content={"error": str(e)}, status_code=500)
-
-
 # Face Comparison Endpoints
 
 from fastapi import UploadFile, Form
@@ -166,6 +126,20 @@ async def set_reference_image(
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
+@app.get("/get_detected_frames/", description="Get the detected frames from the last processed video.")
+async def get_detected_frames(uuid: str, running_id: str):
+    try:
+        detected_frames = await fetch_detected_frames(uuid, running_id)
+        if detected_frames and detected_frames:
+            return JSONResponse(content={"detected_frames": detected_frames, "status": "success"}, status_code=200)
+        return JSONResponse(content={"status": "error", "message": "No detected frames found for the given UUID."},
+                            status_code=404)
+    except Exception as e:
+        yolo_logger.error(f"Error in get_detected_frames endpoint: {e}")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+
+
 @app.get("/health_facenet/", description="Health check endpoint to verify that the FaceNet application is running.")
 async def health_check_facenet():
     try:
@@ -178,6 +152,29 @@ async def health_check_facenet():
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         return JSONResponse(content={"status": "unhealthy", "error": str(e)}, status_code=500)
+@app.get("/health_yolo/", description="Health check endpoint to verify that the YOLO application is running.")
+async def health_check_yolo():
+    try:
+        if await check_mongo():
+            yolo_logger.info("Health check successful.")
+            return JSONResponse(content={"status": "healthy"}, status_code=200)
+        else:
+            yolo_logger.warning("MongoDB is not ready.")
+            return JSONResponse(content={"status": "unhealthy", "error": "MongoDB is not ready."}, status_code=503)
+    except Exception as e:
+        yolo_logger.error(f"Health check failed: {e}")
+        return JSONResponse(content={"status": "unhealthy", "error": str(e)}, status_code=500)
+
+
+@app.delete("/purge_detected_frames/", description="Purge the detected frames collection.")
+async def purge_detected_frames():
+    try:
+        delete_many_detected_frames_collection()
+        return JSONResponse(content={"message": "Detected frames collection purged successfully."}, status_code=200)
+    except Exception as e:
+        yolo_logger.error(f"Error purging detected frames collection: {e}")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
 
 
 if __name__ == "__main__":
