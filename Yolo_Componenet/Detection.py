@@ -18,6 +18,9 @@ class Detection:
         self.frame_index = frame_index  # Store the frame index where the detection occurred
 
     def __str__(self):
+        """
+        Return a string representation of the detection.
+        """
         return (f"Object type: Person\n"
                 f"Coordinates: {self.coordinates}\n"
                 f"Width: {self.width}, Height: {self.height}\n"
@@ -26,6 +29,9 @@ class Detection:
 
     @staticmethod
     def encode_image_to_base64(image_patch):
+        """
+        Encode an image patch to base
+        """
         if image_patch is not None:
             _, buffer = cv2.imencode('.jpg', image_patch)
             image_patch_bytes = buffer.tobytes()
@@ -33,6 +39,9 @@ class Detection:
         return None
 
     def to_dict(self):
+        """
+        Convert the detection to a dictionary
+        """
         return {
             "coordinates": self.coordinates,
             "confidence": self.confidence,

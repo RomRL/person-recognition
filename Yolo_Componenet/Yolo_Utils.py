@@ -11,10 +11,8 @@ from Utils.db import detected_frames_collection, embedding_collection
 from Yolo_Componenet.YoloV8Detector import YoloV8Detector
 from config.config import FACENET_SERVER_URL, MONGODB_URL
 from motor.motor_asyncio import AsyncIOMotorClient
-import csv
 import threading
 import queue
-import time
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -26,6 +24,9 @@ client = AsyncIOMotorClient(MONGODB_URL)
 
 async def insert_detected_frames_separately(uuid: str, running_id: str, detected_frames: Dict[str, Any],
                                             frame_per_second: int = 30):
+    """
+    Insert detected frames separately into the MongoDB collection.
+    """
     for frame_index, frame_data in detected_frames.items():
         frame_document = {
             "uuid": uuid,
@@ -38,8 +39,7 @@ async def insert_detected_frames_separately(uuid: str, running_id: str, detected
         await detected_frames_collection.insert_one(frame_document)
 
 
-# Initialize a list to store frame processing details
-frame_data_list = []
+
 
 # List to store processed frames and their indices
 annotated_frames = {}
@@ -50,6 +50,9 @@ frame_queue = queue.Queue()
 
 
 def annotate_frame_worker(similarity_threshold, detected_frames, uuid, refrence_embeddings):
+    """
+    Worker function to annotate frames with detected faces.
+    """
     global annotated_frames
     while True:
         try:
@@ -77,6 +80,9 @@ def annotate_frame_worker(similarity_threshold, detected_frames, uuid, refrence_
 
 
 async def process_and_annotate_video(video_path: str, similarity_threshold: float, uuid: str, running_id: str) -> str:
+    """
+    Process a video file to detect objects using YOLOv8 and annotate the video with the detected faces.
+    """
     global annotated_frames  # Make sure the global dictionary is accessible
     annotated_frames = {}
     cap = cv2.VideoCapture(video_path)
@@ -107,8 +113,6 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
         t.start()
         threads.append(t)
 
-    start_total = time.time()
-
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
@@ -116,27 +120,14 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
 
         frame_index += 1
 
+
         # Queue even frames for annotation processing
         if frame_index % 2 == 0:
-            start_time = time.time()
             # Detect faces
-            detection_start_time = time.time()
             frame_obj = detector.predict(frame, frame_index=frame_index)
-            detection_time = time.time() - detection_start_time
 
             # Queue the frame for annotation
             frame_queue.put((frame, frame_obj, frame_index))
-
-            # Calculate total frame processing time
-            total_time = time.time() - start_time
-
-            # Collect frame processing data
-            frame_data_list.append({
-                "frame_number": frame_index,
-                "num_detections": len(frame_obj.detections),
-                "detection_time": detection_time,
-                "total_time": total_time
-            })
 
             logger.info(f"Processing frame {frame_index}/{total_frames}")
         else:
@@ -161,7 +152,6 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
                 check_and_annotate(index, frame)
             out.write(frame)
 
-    logger.info(f"Time annotation: {time.time() - start_total}")
     cap.release()
     out.release()
     logger.info(f"Video processing complete , output file saved at {output_path}")
@@ -169,8 +159,7 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
     await insert_detected_frames_separately(uuid=uuid, running_id=running_id, detected_frames=detected_frames,
                                             frame_per_second=frame_per_second)
 
-    # Write collected data to CSV
-    save_frame_data_to_csv(frame_data_list, video_path)
+
 
     # Re-encode the annotated video
     reencoded_output_path = video_path.replace(".mp4", "_annotated_reencoded.mp4")
@@ -184,6 +173,9 @@ async def process_and_annotate_video(video_path: str, similarity_threshold: floa
 
 
 def check_and_annotate(frame_index, frame):
+    """
+    Check if the detections in the previous and next frames are similar and annotate the current frame.
+    """
     diff_margin = 100
     # check the before and after frame detections and if their cordinates are similar add fiction annotation
     if frame_index - 1 in detections_frames and frame_index + 1 in detections_frames:
@@ -224,20 +216,11 @@ def check_and_annotate(frame_index, frame):
             return True
 
 
-def save_frame_data_to_csv(frame_data_list, video_path):
-    csv_file_path = "frame_data.csv"
-    with open(csv_file_path, mode='w', newline='') as csv_file:
-        fieldnames = ["frame_number", "num_detections", "detection_time", "avg_similarity_time", "total_time"]
-        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-
-        writer.writeheader()
-        for frame_data in frame_data_list:
-            writer.writerow(frame_data)
-
-    logger.info(f"Frame data saved to {csv_file_path}")
-
 
 def wrapper(data):
+    """
+    Wrapper function to calculate similarity between embeddings.
+    """
     return embedding_manager.calculate_similarity(
         data[0],
         data[1]
@@ -245,10 +228,11 @@ def wrapper(data):
 
 
 def annotate_frame(frame, frame_obj, similarity_threshold, detected_frames, uuid, refrence_embeddings, frame_index):
-    #from process_pool import process_pool
+    """
+    Annotate a frame with detected faces.
+    """
     logger.info(f"Found in frame {frame_obj.frame_index}: {len(frame_obj.detections)} detections")
     datas = [(refrence_embeddings, detection.image_base_64) for detection in frame_obj.detections]
-    #similarities = process_pool.map(wrapper, datas)
     similarities = [wrapper(data) for data in datas]
 
     for detection, similarity in zip(frame_obj.detections, similarities):
@@ -295,6 +279,9 @@ def annotate_frame(frame, frame_obj, similarity_threshold, detected_frames, uuid
 
 
 async def calculate_similarity(uuid, detected_image_base64):
+    """
+    Calculate similarity between detected image and reference embeddings.
+    """
     reference_embeddings = await embedding_manager.get_reference_embeddings(uuid)
     similarity = await embedding_manager.calculate_similarity(
         reference_embeddings,

@@ -2,21 +2,20 @@ import json
 import tempfile
 from contextlib import asynccontextmanager
 import uvicorn
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, File
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List
 import logging
-import multiprocessing
 from Utils.Log_level import LogLevel, set_log_level
 from Yolo_Componenet.Yolo_Utils import process_and_annotate_video, create_streaming_response, logger as yolo_logger, \
     fetch_detected_frames
-from FaceNet_Componenet.FaceNet_Utils import embedding_manager, face_embedding, initialize_model
+from FaceNet_Componenet.FaceNet_Utils import embedding_manager, face_embedding
 from config.config import YOLO_SERVER_PORT, SIMILARITY_THRESHOLD
 from Utils.db import check_mongo, delete_many_detected_frames_collection
 from fastapi.middleware.cors import CORSMiddleware
 import torch
-from process_pool import initialize_pool
+from fastapi import UploadFile, Form
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -28,14 +27,12 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """
+    Context manager to log application startup and shutdown.
+    """
     logger.info("Starting up...")
     yolo_logger.info("Starting up...")
-    #initialize_pool(num_processes=1)
-
     yield
-    from process_pool import process_pool
-    process_pool.close()
-    process_pool.join()
     logger.info("Shutting down...")
     yolo_logger.info("Shutting down...")
     logger.info("Application stopped.")
@@ -47,7 +44,7 @@ app = FastAPI(
     title="YOLOv8 and Face Comparison API",
     description="This API allows you to process video files to detect objects using YOLOv8 and compare detected faces with a reference image using FaceNet."
 )
-
+# noinspection PyTypeChecker
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Allows all origins
@@ -57,14 +54,19 @@ app.add_middleware(
 )
 
 
-# YOLOv8 Endpoints
 
 class SimilarityThresholdRequest(BaseModel):
+    """
+    Pydantic model for the similarity threshold request.
+    """
     similarity_threshold: Optional[float] = SIMILARITY_THRESHOLD
 
 
 @app.post("/set_logging_level/", description="Set the logging level dynamically.")
 async def set_logging_level(request: LogLevel):
+    """
+    Set the logging level dynamically.
+    """
     try:
         set_log_level(request.name, yolo_logger)
         set_log_level(request.name, logger)
@@ -76,6 +78,9 @@ async def set_logging_level(request: LogLevel):
 @app.post("/detect_and_annotate/", response_description="Annotated video file")
 async def detect_and_annotate_video(uuid: str, running_id: str, file: UploadFile = File(...),
                                     similarity_threshold: float = 20.0):
+    """
+    Process a video file to detect objects using YOLOv8 and annotate the video with the detected
+    """
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp:
             tmp.write(await file.read())
@@ -89,9 +94,6 @@ async def detect_and_annotate_video(uuid: str, running_id: str, file: UploadFile
     except Exception as e:
         yolo_logger.error(f"Error in detect_and_annotate_video endpoint:\n {e}")
         return JSONResponse(content={"error": str(e)}, status_code=500)
-# Face Comparison Endpoints
-
-from fastapi import UploadFile, Form
 
 
 @app.post("/set_reference_image/", description="Set the reference images for face comparison.")
@@ -100,6 +102,10 @@ async def set_reference_image(
         files: List[UploadFile] = File(...),
         user_json: str = Form(...)
 ):
+    """
+    Set the reference images for face comparison , calculate the embeddings, and save them to the database.
+    Returns the number of embeddings saved.
+    """
     try:
         # Process images from files
         file_embeddings = await embedding_manager.process_images(files, face_embedding)
@@ -128,6 +134,9 @@ async def set_reference_image(
 
 @app.get("/get_detected_frames/", description="Get the detected frames from the last processed video.")
 async def get_detected_frames(uuid: str, running_id: str):
+    """
+    Get the detected frames from running_id.
+    """
     try:
         detected_frames = await fetch_detected_frames(uuid, running_id)
         if detected_frames and detected_frames:
@@ -142,6 +151,9 @@ async def get_detected_frames(uuid: str, running_id: str):
 
 @app.get("/health_facenet/", description="Health check endpoint to verify that the FaceNet application is running.")
 async def health_check_facenet():
+    """
+    Health check endpoint to verify that the FaceNet application is running.
+    """
     try:
         if check_mongo():
             logger.info("Health check successful.")
@@ -152,8 +164,12 @@ async def health_check_facenet():
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         return JSONResponse(content={"status": "unhealthy", "error": str(e)}, status_code=500)
+
 @app.get("/health_yolo/", description="Health check endpoint to verify that the YOLO application is running.")
 async def health_check_yolo():
+    """
+    Health check endpoint to verify that the YOLO application is running.
+    """
     try:
         if await check_mongo():
             yolo_logger.info("Health check successful.")
@@ -168,6 +184,9 @@ async def health_check_yolo():
 
 @app.delete("/purge_detected_frames/", description="Purge the detected frames collection.")
 async def purge_detected_frames():
+    """
+    Purge the detected frames collection.
+    """
     try:
         delete_many_detected_frames_collection()
         return JSONResponse(content={"message": "Detected frames collection purged successfully."}, status_code=200)
@@ -178,4 +197,7 @@ async def purge_detected_frames():
 
 
 if __name__ == "__main__":
+    """
+    Start the FastAPI application.
+    """
     uvicorn.run(app, host="0.0.0.0", port=YOLO_SERVER_PORT)  # Adjust the port as needed

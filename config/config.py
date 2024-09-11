@@ -1,4 +1,3 @@
-import multiprocessing
 import os
 from os.path import join
 ROOT_PATH = os.path.dirname(os.path.abspath(__file__))
