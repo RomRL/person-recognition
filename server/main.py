@@ -7,12 +7,12 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List
 import logging
-from Utils.Log_level import LogLevel, set_log_level
-from Yolo_Componenet.Yolo_Utils import process_and_annotate_video, create_streaming_response, logger as yolo_logger, \
+from server.Utils.Log_level import LogLevel, set_log_level
+from server.Yolo_Componenet.Yolo_Utils import process_and_annotate_video, create_streaming_response, logger as yolo_logger, \
     fetch_detected_frames
 from FaceNet_Componenet.FaceNet_Utils import embedding_manager, face_embedding
 from config.config import YOLO_SERVER_PORT, SIMILARITY_THRESHOLD
-from Utils.db import check_mongo, delete_many_detected_frames_collection
+from server.Utils.db import check_mongo, delete_many_detected_frames_collection
 from fastapi.middleware.cors import CORSMiddleware
 import torch
 from fastapi import UploadFile, Form

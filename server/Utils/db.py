@@ -1,5 +1,5 @@
 from motor.motor_asyncio import AsyncIOMotorClient
-from config.config import MONGODB_URL
+from server.config.config import MONGODB_URL
 
 async_client = AsyncIOMotorClient(MONGODB_URL)
 async_database = async_client["Person_Recognition"]

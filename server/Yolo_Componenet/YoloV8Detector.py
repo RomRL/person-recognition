@@ -1,8 +1,8 @@
 import cv2
 from ultralytics import YOLO
 import torch
-from Yolo_Componenet.Frame import Frame
-from Yolo_Componenet.Detection import Detection
+from server.Yolo_Componenet.Frame import Frame
+from server.Yolo_Componenet.Detection import Detection
 
 
 class YoloV8Detector:

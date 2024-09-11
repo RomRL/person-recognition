@@ -8,9 +8,9 @@ import io
 from fastapi import UploadFile
 from sklearn.metrics.pairwise import cosine_similarity
 
-from Utils.db import embedding_collection, check_mongo
+from server.Utils.db import embedding_collection
 import torch
-from Utils.db import detected_frames_collection
+from server.Utils.db import detected_frames_collection
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)

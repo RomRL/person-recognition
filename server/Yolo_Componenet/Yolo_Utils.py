@@ -6,10 +6,10 @@ import ffmpeg
 import cv2
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
-from FaceNet_Componenet.FaceNet_Utils import embedding_manager, face_embedding
-from Utils.db import detected_frames_collection, embedding_collection
-from Yolo_Componenet.YoloV8Detector import YoloV8Detector
-from config.config import FACENET_SERVER_URL, MONGODB_URL
+from server.FaceNet_Componenet.FaceNet_Utils import embedding_manager, face_embedding
+from server.Utils.db import detected_frames_collection, embedding_collection
+from server.Yolo_Componenet.YoloV8Detector import YoloV8Detector
+from server.config.config import FACENET_SERVER_URL, MONGODB_URL
 from motor.motor_asyncio import AsyncIOMotorClient
 import threading
 import queue
