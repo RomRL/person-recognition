@@ -78,9 +78,7 @@ const ResultPage: React.FC = () => {
    * Closes the no detection found dialog.
    */
   const handleCloseDialog = () => {
-    console.log('closing');
     setDialogOpen(false);
-    console.log('Dialog open state after closing:', dialogOpen);
   };
 
   // Extract user details from the detectedFrames object
@@ -93,7 +91,7 @@ const ResultPage: React.FC = () => {
     if (frameKeys.length === 0) {
       setDialogOpen(true); // Open the dialog if no detections are found
     }
-  }, []); // Only run when frameKeys changes
+  }, []); // Only run when page first load
   
 
   // Create a filtered version of detectedFrames that only includes Detection types
